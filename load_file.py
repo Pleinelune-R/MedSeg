@@ -2,176 +2,184 @@ import os
 import glob 
 from collections import defaultdict 
 import numpy as np 
-import matplotlib.pyplot as plt 
-from monai.data import ITKReader
-from monai.transforms import LoadImage
-import torch
-
-# 1. 分组多序列 DICOM 文件 
+import matplotlib.pyplot  as plt 
+from monai.data  import ITKReader 
+from monai.transforms  import LoadImage 
+import torch 
+ 
 def group_dicoms_by_series(folder_path):
-    """按 SeriesInstanceUID 自动分组 DICOM 文件"""
-    files = sorted(glob.glob(os.path.join(folder_path, "*.dcm")))
+    files = sorted(glob.glob(os.path.join(folder_path,  "*.dcm")))
     series_dict = defaultdict(list)
-    
-    # nii、nii.gz -> NibabelReader
-    # png、jpg、bmp -> PILReader
-    # npz、npy -> NumpyReader
-    # 其他 -> ITKReader
-    # 切Reader先放着以后再说
-
     loader = LoadImage(image_only=False, reader=ITKReader())
     
     for f in files:
         try:
             img_obj = loader(f)
-            meta_data = img_obj[1]  # LoadImage： (image_data, meta_data) 
+            meta_data = img_obj[1]
             
-            series_uid = None
+            series_uid = None 
             for key in ['series_instance_uid', '0020|000e', 'SeriesInstanceUID']:
                 if key in meta_data:
                     series_uid = meta_data[key]
-                    break
+                    break 
             
             if not series_uid:
-                print(f"警告: 无法从文件 {os.path.basename(f)} 中获取SeriesInstanceUID")
-                continue
+                print(f"警告: 无法从文件 {os.path.basename(f)}  中获取SeriesInstanceUID")
+                continue 
                 
-            # SeriesNumber
-            series_number = 0
+            # 获取DICOM斜率/截距
+            slope = 1.0 
+            intercept = 0.0 
+            for key in ['rescale_slope', '0028|1053', 'RescaleSlope']:
+                if key in meta_data:
+                    slope = float(meta_data[key])
+                    break 
+            for key in ['rescale_intercept', '0028|1052', 'RescaleIntercept']:
+                if key in meta_data:
+                    intercept = float(meta_data[key])
+                    break 
+ 
+            series_number = 0 
             for key in ['series_number', '0020|0011', 'SeriesNumber']:
                 if key in meta_data:
                     try:
                         series_number = int(meta_data[key])
                     except (ValueError, TypeError):
-                        series_number = 0
-                    break
+                        series_number = 0 
+                    break 
             
-            # SeriesDescription
             series_desc = "Unnamed"
             for key in ['series_description', '0008|103e', 'SeriesDescription']:
                 if key in meta_data:
                     series_desc = meta_data[key]
-                    break
+                    break 
      
             series_dict[series_uid].append({
                 "path": f,
                 "SeriesNumber": series_number,
-                "SeriesDescription": series_desc 
+                "SeriesDescription": series_desc,
+                "RescaleSlope": slope,    # 新增元数据 
+                "RescaleIntercept": intercept 
             })
         except Exception as e:
-            # 处理没有像素数据的文件（如RTSTRUCT）
-            print(f"跳过文件 {os.path.basename(f)}: {str(e)}")
-            continue
+            print(f"跳过文件 {os.path.basename(f)}:  {str(e)}")
+            continue 
  
-    # 按 SeriesNumber 排序 
-    if not series_dict:
-        print("警告: 未找到有效的DICOM序列")
-        return {}
-        
     return {k: sorted(v, key=lambda x: x["path"])
-            for k, v in sorted(series_dict.items(), 
+            for k, v in sorted(series_dict.items(),  
                               key=lambda x: int(x[1][0]["SeriesNumber"]) if x[1][0]["SeriesNumber"] else 0)}
  
-# 2. 多序列可视化函数 
+def analyze_conversion(original, converted):
+    """新增：量化转换精度损失"""
+    original_float = original.float() 
+    abs_diff = torch.abs(original_float  - converted)
+    rel_diff = abs_diff / (original_float.abs()  + 1e-6)
+    
+    return {
+        'max_abs': abs_diff.max().item(), 
+        'mean_abs': abs_diff.mean().item(), 
+        'max_rel': rel_diff.max().item(), 
+        'hist': torch.histc(abs_diff,  bins=50)
+    }
+ 
 def visualize_multi_series(series_dict, slices_per_series=3):
-    """显示每个序列的前 N 个切片"""
-
-    # 转换格式后同样要修改
     loader = LoadImage(image_only=True, reader=ITKReader())
  
-    for series_id, files in series_dict.items(): 
-        imgs = []
-        for f_info in files[:slices_per_series]:
-            f_path = f_info["path"]
-            img_tensor = loader(f_path)
-            # 转换为 NumPy 数组 
-            img_np = img_tensor.numpy() 
-            imgs.append(img_np) 
- 
-        # 创建子图 
-        fig, axes = plt.subplots(1, len(imgs), figsize=(15, 5))
-        if len(imgs) == 1:  # 处理只有一个切片的情况
-            axes = [axes]
-            
-        fig.suptitle(f"Series {files[0]['SeriesNumber']}: {files[0]['SeriesDescription']}",
-                     fontsize=12, y=1.05)
- 
-        for i, (img, ax) in enumerate(zip(imgs, axes)):
-            ax.imshow(img, cmap="gray",
-                     vmin=np.percentile(img, 1),
-                     vmax=np.percentile(img, 99))
-            ax.set_title(f"Slice {i+1}/{len(files)}")
-            ax.axis("off") 
- 
-        plt.tight_layout() 
-        plt.show() 
-
-# 3. 封装函数：加载DICOM文件并返回torch数据
-def load_dicom_series(folder_path, visualize=True, slices_per_series=3):
-    """
-    加载DICOM序列并返回torch格式的数据
-    
-    参数:
-        folder_path (str): DICOM文件所在文件夹路径
-        visualize (bool): 是否可视化显示序列，默认为True
-        slices_per_series (int): 每个序列显示的切片数，默认为3
+    for series_id, files in series_dict.items():  
+        fig, axes = plt.subplots(2,  slices_per_series, figsize=(15, 8))
+        fig.suptitle(f"Series  {files[0]['SeriesNumber']}: {files[0]['SeriesDescription']}", fontsize=12)
         
-    返回:
-        dict: 包含每个序列的torch张量数据，格式为 {series_id: {'data': torch_tensor, 'info': series_info}}
+        for i, f_info in enumerate(files[:slices_per_series]):
+            # 原始数据 
+            img_orig = loader(f_info["path"])
+            axes[0,i].imshow(img_orig, cmap="gray", 
+                           vmin=np.percentile(img_orig,  1),
+                           vmax=np.percentile(img_orig,  99))
+            axes[0,i].set_title(f"Original\nSlice {i+1}")
+            
+            # 转换后数据（自动选择CT或常规转换）
+            if "CT" in files[0]['SeriesDescription'].upper():
+                img_converted = img_orig.float()  * f_info["RescaleSlope"] + f_info["RescaleIntercept"]
+            else:
+                img_converted = img_orig.float() 
+            
+            axes[1,i].imshow(img_converted, cmap="gray",
+                           vmin=np.percentile(img_converted,  1),
+                           vmax=np.percentile(img_converted,  99))
+            axes[1,i].set_title(f"Converted\nMax err: {analyze_conversion(img_orig, img_converted)['max_abs']:.2f}")
+            
+            for ax in axes[:,i]:
+                ax.axis("off") 
+ 
+        plt.tight_layout()  
+        plt.show() 
+ 
+def load_dicom_series(folder_path, visualize=True, convert_type='auto'):
     """
-    # 步骤1: 自动分组多序列
+    convert_type: 'auto'|'ct'|'raw' 选择转换方式 
+    """
     series_dict = group_dicoms_by_series(folder_path)
-    
-    # 打印序列信息
-    print(f"发现 {len(series_dict)} 个序列:")
-    for uid, files in series_dict.items(): 
-        print(f"→ 序列 {files[0]['SeriesNumber']}: {files[0]['SeriesDescription']} (共 {len(files)} 张切片)")
-    
-    # 步骤2: 可选的可视化
-    if visualize:
-        visualize_multi_series(series_dict, slices_per_series)
-    
-    # 步骤3: 加载所有序列数据并转换为torch张量
     loader = LoadImage(image_only=True, reader=ITKReader())
     torch_series_data = {}
-    
-    for series_id, files in series_dict.items():
-        # 收集该序列的所有切片
-        series_images = []
-        for f_info in files:
-            f_path = f_info["path"]
-            img_tensor = loader(f_path)
-            series_images.append(img_tensor)
+    global_stats = []  # 新增：全局统计记录 
+ 
+    print(f"发现 {len(series_dict)} 个序列:")
+    for uid, files in series_dict.items():  
+        print(f"→ 序列 {files[0]['SeriesNumber']}: {files[0]['SeriesDescription']} (共 {len(files)} 张切片)")
+ 
+    if visualize:
+        visualize_multi_series(series_dict)
+ 
+    for series_id, files in series_dict.items(): 
+        series_tensors = []
+        series_stats = []
         
-        # 将所有切片堆叠成一个3D张量 [depth, height, width]
-        if series_images:
-            stacked_tensor = torch.stack(series_images, dim=0)
+        for f_info in files:
+            img = loader(f_info["path"])
             
-            # 保存张量数据和序列信息
+            # 根据类型转换 
+            if convert_type == 'ct' or (convert_type == 'auto' and "CT" in files[0]['SeriesDescription'].upper()):
+                converted = img.float()  * f_info["RescaleSlope"] + f_info["RescaleIntercept"]
+            else:
+                converted = img.float() 
+            
+            # 记录统计 
+            stats = analyze_conversion(img, converted)
+            series_stats.append(stats) 
+            series_tensors.append(converted) 
+        
+        # 打印本序列统计 
+        print(f"\n序列 {files[0]['SeriesNumber']} 转换精度:")
+        print(f"最大绝对误差: {max(s['max_abs'] for s in series_stats):.4f}")
+        print(f"平均相对误差: {np.mean([s['mean_abs']  for s in series_stats]):.4f}")
+        global_stats.extend(series_stats) 
+        
+        # 堆叠3D张量 
+        if series_tensors:
             torch_series_data[series_id] = {
-                'data': stacked_tensor,
+                'data': torch.stack(series_tensors,  dim=0),
                 'info': {
-                    'SeriesNumber': files[0]['SeriesNumber'],
-                    'SeriesDescription': files[0]['SeriesDescription'],
-                    'SliceCount': len(files)
+                    **{k: files[0][k] for k in ['SeriesNumber', 'SeriesDescription']},
+                    'SliceCount': len(files),
+                    'ConversionStats': series_stats  # 新增统计信息 
                 }
             }
     
-    return torch_series_data
+    print("\n全局转换精度摘要:")
+    print(f"总切片数: {len(global_stats)}")
+    print(f"最大绝对误差: {max(s['max_abs'] for s in global_stats):.4f}")
+    print(f"平均绝对误差: {np.mean([s['mean_abs']  for s in global_stats]):.4f}")
 
-# 示例用法
+    plt.figure(figsize=(10,5)) 
+    all_errors = torch.cat([s['hist']  for s in torch_series_data[next(iter(torch_series_data))]['info']['ConversionStats']])
+    plt.hist(all_errors.numpy(),  bins=50, log=True)
+    plt.title("Global  Absolute Error Distribution")
+    plt.xlabel("Pixel  Value Difference")
+    plt.show() 
+    
+    return torch_series_data 
+ 
 if __name__ == "__main__":
-    folder_path = "./MONAI_DATA_DIRECTORY/MR00061837-LinLiChai"  # 文件夹路径
+    folder_path = "./MONAI_DATA_DIRECTORY/MR00061837-LinLiChai"
+    series_data = load_dicom_series(folder_path, convert_type='auto')
     
-    # 调用封装函数
-    series_data = load_dicom_series(folder_path)
-    
-    # 展示返回的torch数据信息
-    print("\n返回的Torch数据信息:")
-    for series_id, data_dict in series_data.items():
-        tensor = data_dict['data']
-        info = data_dict['info']
-        print(f"序列 {info['SeriesNumber']}: {info['SeriesDescription']}")
-        print(f"  形状: {tensor.shape}")
-        print(f"  数据类型: {tensor.dtype}")
-        print(f"  数据范围: [{tensor.min().item():.2f}, {tensor.max().item():.2f}]")
