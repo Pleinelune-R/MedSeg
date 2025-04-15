@@ -14,89 +14,73 @@ logger = MyLogger("data_prepare")
 SERIES_UID_KEY = '0020|000e'
 
 
-def group_dicoms_by_series(folder_path):
-    files = sorted(glob.glob(os.path.join(folder_path, "*.dcm")))
-    series_dict = defaultdict(list)
-    loader = LoadImage(image_only=False, reader=ITKReader())  # return ß(image_array, metadata_dict)
+def group_dicoms_by_series(folder_path): 
+    # Get all DICOM files in folder
+    files = sorted(glob.glob(os.path.join(folder_path,   "*.dcm"))) 
+    data_lists = [] 
+    # nii、nii.gz -> NibabelReader 
+    # png、jpg、bmp -> PILReader 
+    # npz、npy -> NumpyReader
+    # others -> ITKReader
+    loader = LoadImage(image_only=False, reader=ITKReader())  # return (image_array, metadata_dict) 
+ 
+    for f in files: 
+        try: 
+            img_obj = loader(f) 
+            meta_data = img_obj[1] #metadata_dict
+ 
+            # Initialize metadata 
+            extracted_data = { 
+                "SeriesUID": "",                 # Tag: 0020|000e 
+                "SeriesNumber": 0,               # Tag: 0020|0011 
+                "InstanceNumber": 0,             # Tag: 0020|0013 
+                "StudyDescription": "Unnamed",   # Tag: 0008|1030 
+                "SeriesDescription": "Unnamed",  # Tag: 0008|103e 
+                "spacing": [1.0, 1.0, 1.0], 
+                "spatial_shape": [0, 0, 0], 
+                "space": "RAS"                   # Coordinate system 
+            } 
+ 
+            for key, value in meta_data.items():  
+                try: 
+                    # Match the key to extract the corresponding metadata 
+                    match key: 
+                        case "0020|000e": 
+                            extracted_data["SeriesUID"] = str(value) 
+                        case "0020|0011": 
+                            extracted_data["SeriesNumber"] = int(value) 
+                        case "0020|0013": 
+                            extracted_data["InstanceNumber"] = int(value) 
+                        case "0008|1030": 
+                            extracted_data["StudyDescription"] = str(value) 
+                        case "0008|103e": 
+                            extracted_data["SeriesDescription"] = str(value) 
+                        case "spacing": 
+                            extracted_data["spacing"] = [float(v) for v in value[:3]] 
+                        case "spatial_shape": 
+                            extracted_data["spatial_shape"] = [int(v) for v in value] 
+                        case "space": 
+                            extracted_data["space"] = str(value).upper()  # normalize RAS/LPS 
+                except Exception as e: 
+                    # Log a warning if an error occurs while processing the metadata key 
+                    logger.warning(f"Error  processing metadata key '{key}': {str(e)}") 
+ 
+            data_lists.append({  
+                "path": f, 
+                **extracted_data  # You can change the structure of the data_list 
+            }) 
+ 
+        except Exception as e: 
+            # Skip the file if an error occurs while loading it 
+            print(f"Skipping file {os.path.basename(f)}:  {str(e)}") 
+ 
+    # Sort the data list first by SeriesNumber and then by InstanceNumber 
+    sorted_files = sorted(data_lists, key=lambda x: (x["SeriesNumber"], x["InstanceNumber"])) 
+    return sorted_files 
 
-    for f in files:
-        try:
-            img_obj = loader(f)
-            meta_data = img_obj[1]
-            print(meta_data)
-            print(type(meta_data))
-
-            # maybe useful do not del
-            # for tag, value in meta_data.items():
-            #     print(f"Tag: {tag} | Value: {value}")
-            # print("\n" + "-" * 50 + "\n")  # 分隔线
-
-            # TODO:  更换一种匹配方式，可以考虑匹配ID即可，
-            #  现在这种方法太过于长了，冗余计算很多，这种批量的参数获取我建议写成类似C的 switch关键字来实现，
-            #  python支持 switch，看一下新版的switch来写一下，for循环效率太低，可扩展性非常差
-            #  可以参考下其他的人的办法。或者我这个写法，也不太正规，但是简略清晰一点，
-            #  麻烦print 换 log，并且用英文写注释
-
-            series_uid = meta_data[SERIES_UID_KEY] if SERIES_UID_KEY in meta_data else None
-
-            if not series_uid:
-                logger.info(f"警告: 无法从文件 {os.path.basename(f)}  中获取SeriesInstanceUID")
-                continue
-
-            # TODO:  DICOM斜率，截距没什么大用处，下面这些关键字提取一下并保留.
-            # Tag: 0008|1030 | Value: npc/yt what's the meaning of ？
-            # Tag: 0008|103e | Value: Ax T2W_STIR SENSE
-            # Tag: spacing | Value: [0.23392858 0.23392858 6.        ] spacing info
-            # Tag: spatial_shape | Value: [1120 1120    1] #image shape
-            # Tag: space | Value: RAS
-            # 获取DICOM斜率/截距
-            slope = 1.0
-            intercept = 0.0
-            for key in ['rescale_slope', '0028|1053', 'RescaleSlope']:
-                if key in meta_data:
-                    slope = float(meta_data[key])
-                    break
-            for key in ['rescale_intercept', '0028|1052', 'RescaleIntercept']:
-                if key in meta_data:
-                    intercept = float(meta_data[key])
-                    break
-
-            series_number = 0
-            for key in ['series_number', '0020|0011', 'SeriesNumber']:
-                if key in meta_data:
-                    try:
-                        series_number = int(meta_data[key])
-                    except (ValueError, TypeError):
-                        series_number = 0
-                    break
-
-            series_desc = "Unnamed"
-            for key in ['series_description', '0008|103e', 'SeriesDescription']:
-                if key in meta_data:
-                    series_desc = meta_data[key]
-                    break
-
-            series_dict[series_uid].append({
-                "path": f,
-                "SeriesNumber": series_number,
-                "SeriesDescription": series_desc,
-                "RescaleSlope": slope,  # 新增元数据
-                "RescaleIntercept": intercept
-            })
-        except Exception as e:
-            print(f"跳过文件 {os.path.basename(f)}:  {str(e)}")
-            continue
-
-    # TODO ：这样排序是否正确？理论上应该按切片顺序来排训，一个序列的切片顺序，然后四个序列，应该返回四个一样的数据结构回来
-    # 医学逻辑（如解剖位置）决定，而非文件路径
-    # 这位置代码写的只能说是逆天，我一眼看不懂，竟然不写注释，这排序太难懂了，这让其他人怎么看
-    # 字典顺序是随机的，不建议用字典，这一段重写用list或者其他的数据结构
-    # SeriesNumber 每个series_uid到这里的Series保证一样么，x[1][0]["SeriesNumber"]这种可读性太差了，看得太费劲，要不写注释，要不换个方法
-    return {k: sorted(v, key=lambda x: x["path"])
-            for k, v in
-            sorted(series_dict.items(), key=lambda x: int(x[1][0]["SeriesNumber"]) if x[1][0]["SeriesNumber"] else 0)}
-
-
+folder_path = './MONAI_DATA_DIRECTORY/MR00061837-LinLiChai'
+sorted_files = group_dicoms_by_series(folder_path)
+print(sorted_files[1]["SeriesNumber"])
 def analyze_conversion(original, converted):
     """新增：量化转换精度损失"""
     original_float = original.float()
@@ -109,7 +93,6 @@ def analyze_conversion(original, converted):
         'max_rel': rel_diff.max().item(),
         'hist': torch.histc(abs_diff, bins=50)
     }
-
 
 def visualize_multi_series(series_dict, slices_per_series=3):
     loader = LoadImage(image_only=True, reader=ITKReader())
@@ -143,7 +126,6 @@ def visualize_multi_series(series_dict, slices_per_series=3):
 
         plt.tight_layout()
         plt.show()
-
 
 def load_dicom_series(folder_path, visualize=True, convert_type='auto'):
     """
