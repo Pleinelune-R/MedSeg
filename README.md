@@ -16,11 +16,9 @@ MedSeg/
 ``` git clone git@github.com:Pleinelune-R/MedSeg.git ```  
 ``` cd MedSeg ```  
 ## 使用方法：
-项目使用了 setuptools 进行包管理，你可以通过  
-``` from 子包名  import 模块名 ```  
-来导入模块，例如：  
+项目使用了 setuptools 进行包管理，你可以通过``` from 子包名  import 模块名 ```来导入模块，例如：  
 ``` from data_prepare.load_file  import load_dicom_series ```  
-main.py：修改folder_path并运行程序。注意，数据存放的文件夹名应为data。  
+main.py：修改folder_path并运行程序。**注意，数据存放的文件夹名应为data。  **
 group_dicoms_by_series：按系列号和实例号进行排序DICOM文件，记录每个系列的切片数量。  
 analyze_conversion：分析数据转换过程中的精度损失。  
 load_images_series：加载 DICOM 系列数据，并将其存储在一个列表中。  
