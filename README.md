@@ -2,13 +2,13 @@
 ## 项目简介：
 MedSeg是一个用于医学影像（MRI、CT）分割任务的项目。
 ## 项目结构：
-MedSeg/ 
+MedSeg/   
 ├── setup.py  
 ├── main.py  
-├── data/
-└── data_prepare/ 
-    ├── __init__.py 
-    ├── load_file.py  
+├── data/  
+└── data_prepare/  
+    ├── __init__.py   
+    ├── load_file.py   
     └── logger.py  
 ## 安装步骤：
 ``` git clone ```  
