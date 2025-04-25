@@ -1,27 +1,23 @@
-import logging
-import os
-import glob
-from collections import defaultdict
-import numpy as np
-import matplotlib.pyplot as plt
-from monai.data import ITKReader
-from monai.transforms import LoadImage
-import torch
-
-from logger import MyLogger
-
-logger = MyLogger("data_prepare")
-SERIES_UID_KEY = '0020|000e'
-
-
+import logging 
+import os 
+import glob 
+from collections import defaultdict 
+import numpy as np 
+import matplotlib.pyplot  as plt 
+import torch 
+from monai.data  import ITKReader 
+from monai.transforms  import LoadImage 
+from torchvision.transforms  import Resize 
+ 
+from logger import MyLogger 
+ 
+logger = MyLogger("data_prepare") 
+SERIES_UID_KEY = '0020|000e' 
+ 
 def group_dicoms_by_series(folder_path): 
     """Get all DICOM files in folder""" 
-    files = sorted(glob.glob(os.path.join(folder_path,  "*.dcm"))) 
+    files = sorted(glob.glob(os.path.join(folder_path,   "*.dcm"))) 
     data_lists = [] 
-    # nii、nii.gz  -> NibabelReader 
-    # png、jpg、bmp -> PILReader 
-    # npz、npy -> NumpyReader 
-    # others -> ITKReader 
     loader = LoadImage(image_only=False, reader=ITKReader())  # return (image_array, metadata_dict) 
  
     for f in files: 
@@ -41,7 +37,7 @@ def group_dicoms_by_series(folder_path):
                 "space": "RAS"                   # Coordinate system 
             } 
  
-            for key, value in meta_data.items():  
+            for key, value in meta_data.items():     
                 try: 
                     # Match the key to extract the corresponding metadata 
                     if key == "0020|000e": 
@@ -62,16 +58,16 @@ def group_dicoms_by_series(folder_path):
                         extracted_data["space"] = str(value).upper()  # normalize RAS/LPS 
                 except Exception as e: 
                     # Log a warning if an error occurs while processing the metadata key 
-                    logger.warning(f"Error  processing metadata key '{key}': {str(e)}") 
+                    logger.warning(f"Error   processing metadata key '{key}': {str(e)}") 
  
-            data_lists.append({  
+            data_lists.append({     
                 "path": f, 
                 **extracted_data  # You can change the structure of the data_list 
             }) 
  
         except Exception as e: 
             # Skip the file if an error occurs while loading it 
-            print(f"Skipping file {os.path.basename(f)}:  {str(e)}") 
+            print(f"Skipping file {os.path.basename(f)}:   {str(e)}") 
  
     # Sort the data list first by SeriesNumber and then by InstanceNumber 
     sorted_files = sorted(data_lists, key=lambda x: (x["SeriesNumber"], x["InstanceNumber"])) 
@@ -90,43 +86,53 @@ def group_dicoms_by_series(folder_path):
  
     # Generate a single info message 
     info_message = "Slice information :\n" 
-    for series_number, slice_count in series_slice_count.items():  
+    for series_number, slice_count in series_slice_count.items():     
         series_desc = series_descriptions[series_number] 
         info_message += f"Series {series_number} {series_desc} has {slice_count} slices.\n" 
  
-    logger.info(info_message)  
- 
+    logger.info(info_message)     
     return sorted_files 
-def analyze_conversion(original, converted):
+ 
+def analyze_conversion(original, converted): 
     """Analyzes precision loss during conversion""" 
-    original = torch.tensor(original)  
-    converted = torch.tensor(converted)  
-    original_float = original.float()     
-    abs_diff = torch.abs(original_float  - converted)  
-    rel_diff = abs_diff / (original_float.abs()  + 1e-6)  # Relative error with numerical stability 
+    original = torch.tensor(original)     
+    converted = torch.tensor(converted)     
+    original_float = original.float()        
+    abs_diff = torch.abs(original_float   - converted)  
+    rel_diff = abs_diff / (original_float.abs()   + 1e-6)  # Relative error with numerical stability 
     
-    return {
-        'max_abs': abs_diff.max().item(),        # Maximum absolute error
-        'mean_abs': abs_diff.mean().item(),      # Mean absolute error
-        'max_rel': rel_diff.max().item(),        # Maximum relative error
-        'hist': torch.histc(abs_diff,  bins=50)  # Error distribution histogram
-    }
-
+    return { 
+        'max_abs': abs_diff.max().item(),           # Maximum absolute error 
+        'mean_abs': abs_diff.mean().item(),         # Mean absolute error 
+        'max_rel': rel_diff.max().item(),           # Maximum relative error 
+        'hist': torch.histc(abs_diff,   bins=50)  # Error distribution histogram 
+    } 
+ 
 def load_images_series(data_lists): 
-    """Store DICOM series data""" 
     loader = LoadImage(image_only=True, reader=ITKReader()) 
-    image_data = [] 
+    image_lists = [] 
+    resize = Resize((1024, 1024))  # resize
+    
     for files in data_lists: 
+        raw_data = loader(files['path']) 
+        # MetaTensor  -> np.ndarray  
+        if hasattr(raw_data, 'numpy'): 
+            raw_data = raw_data.numpy()  
+        if raw_data.ndim  < 3: 
+            # add dimension
+            raw_data = np.expand_dims(raw_data,  axis=-1) 
+        raw_data = torch.from_numpy(raw_data).permute(2,  0, 1) 
+        resized_data = resize(raw_data).permute(1, 2, 0).numpy()  # resize
         img_info = { 
             'SeriesNumber': files['SeriesNumber'], 
-            'InstanceNumber': files['InstanceNumber'],  # Slice number 
+            'InstanceNumber': files['InstanceNumber'], 
             'SeriesDescription': files['SeriesDescription'], 
-            'ImageData': loader(files["path"])  # Store the complete image data 
+            'ImageData': resized_data 
         } 
-        image_data.append(img_info)  
-    return image_data 
+        image_lists.append(img_info)      
+    return image_lists 
  
-def get_image_data(img_lists, series_num, instance_num):
+def get_image_data(img_lists, series_num, instance_num): 
     """Display a single slice with the specified SeriesNumber and InstanceNumber""" 
     # Filter the matching slice 
     target_slice = [ 
@@ -142,27 +148,46 @@ def get_image_data(img_lists, series_num, instance_num):
     # Visualization configuration 
     img_info = target_slice[0] 
     if img_info is None: 
-        return
-    return img_info
- 
+        return 
+    return img_info 
  
 def plot_single_image(img_info): 
     if not img_info: 
         print(f"Image not found.") 
         return 
     img_data = img_info['ImageData'] 
-    plt.figure(figsize=(8,  6)) 
-    plt.imshow(img_data,  cmap="gray", 
-               vmin=np.percentile(img_data,  1), 
-               vmax=np.percentile(img_data,  99)) 
-    plt.title(f"  Series {img_info['SeriesNumber']} | Slice {img_info['InstanceNumber']}\n{img_info['SeriesDescription']}") 
-    plt.axis('off')  
-    plt.tight_layout()  
-    plt.show()  
+    if img_data.ndim  == 4:  # (Batch, Channel, H, W) 
+        img_data = img_data.squeeze(0)     
+        img_data = np.squeeze(img_data)     # resize 
  
-
-file_path = "./MONAI_DATA_DIRECTORY/MR00061837-LinLiChai"
-data_lists = group_dicoms_by_series(file_path)
-img_lists = load_images_series(data_lists)
-img_info = get_image_data(img_lists, 401, 1)
-plot_single_image(img_info)
+    if img_data.ndim  not in [2, 3]: 
+        raise ValueError(f"Invalid image shape {img_data.shape}.   Expected 2D (H,W) or 3D (H,W,C)") 
+ 
+    plt.figure(figsize=(8,   6)) 
+    plt.imshow(img_data,   cmap="gray", 
+               vmin=np.percentile(img_data,   1), 
+               vmax=np.percentile(img_data,   99)) 
+    plt.title(f"   Series {img_info['SeriesNumber']} | Slice {img_info['InstanceNumber']}\n{img_info['SeriesDescription']}") 
+    plt.axis('off')     
+    plt.tight_layout()     
+    plt.show()     
+ 
+class CustomDataset(): 
+    def __init__(self, folder_path): 
+        self.data_lists   = group_dicoms_by_series(folder_path) 
+        self.img_lists   = load_images_series(self.data_lists)     
+ 
+    def __len__(self): 
+        return len(self.img_lists)     
+ 
+    def __getitem__(self, idx): 
+        img_info = self.img_lists[idx]     
+        image = img_info['ImageData'] 
+        series_number = img_info['SeriesNumber'] 
+        instance_number = img_info['InstanceNumber'] 
+        series_description = img_info['SeriesDescription'] 
+ 
+        # Convert image to torch tensor 
+        image = image.detach().clone()   if isinstance(image, torch.Tensor) else torch.tensor(image)    
+ 
+        return image, series_number, instance_number, series_description 
