@@ -1,39 +1,7 @@
-Brotli @ file:///C:/b/abs_c415aux9ra/croot/brotli-split_1736182803933/work
-contourpy @ file:///C:/b/abs_f2u2o_8s9g/croot/contourpy_1732540071787/work
-cycler @ file:///tmp/build/80754af9/cycler_1637851556182/work
-filelock==3.18.0
-fonttools @ file:///C:/b/abs_4crkswws2h/croot/fonttools_1737040078745/work
-fsspec==2025.3.2
-itk==5.4.3
-itk-core==5.4.3
-itk-filtering==5.4.3
-itk-io==5.4.3
-itk-numerics==5.4.3
-itk-registration==5.4.3
-itk-segmentation==5.4.3
-Jinja2==3.1.6
-kiwisolver @ file:///C:/b/abs_faf90xet7a/croot/kiwisolver_1737040915779/work
-MarkupSafe==3.0.2
-matplotlib==3.10.0
-mkl-service==2.4.0
-mkl_fft @ file:///C:/Users/dev-admin/mkl/mkl_fft_1730823082242/work
-mkl_random @ file:///C:/Users/dev-admin/mkl/mkl_random_1730822522280/work
-monai==1.4.0
-mpmath==1.3.0
-networkx==3.4.2
-numpy==1.26.4
-packaging @ file:///C:/b/abs_3by6s2fa66/croot/packaging_1734472138782/work
-pillow @ file:///C:/b/abs_68t826txdy/croot/pillow_1744613085333/work
-pyparsing @ file:///C:/b/abs_40z8gyj9wi/croot/pyparsing_1731445739241/work
-PyQt6==6.7.1
-PyQt6_sip @ file:///C:/b/abs_f47pmp6xmn/croot/pyqt-split_1744804513582/work/pyqt_sip
-python-dateutil @ file:///C:/b/abs_3au_koqnbs/croot/python-dateutil_1716495777160/work
-setuptools==72.1.0
-sip @ file:///C:/b/abs_5cto136kse/croot/sip_1738856220313/work
-six @ file:///C:/b/abs_149wuyuo1o/croot/six_1744271521515/work
-sympy==1.13.3
-torch==2.7.0
-tornado @ file:///C:/b/abs_7cyu943ybx/croot/tornado_1733960510898/work
-typing_extensions==4.13.2
-unicodedata2 @ file:///C:/b/abs_dfnftvxi4k/croot/unicodedata2_1736543771112/work
-wheel==0.45.1
+setuptools~=72.1.0
+torch~=2.7.0
+matplotlib~=3.10.1
+monai~=1.4.0
+pydicom~=3.0.1
+simpleitk~=2.4.1
+dcmrtstruct2nii~=5

@@ -6,9 +6,6 @@ from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 
-# This module should be used in >=3.4 version
-
-
 class MyLogger(logging.Logger):
     """Create my self.log from python stdlib self.log module"""
 
@@ -56,3 +53,6 @@ class MyLogger(logging.Logger):
 
         # logger add more info
         self.info(f'{name} Logger has been initialized')
+
+
+        
