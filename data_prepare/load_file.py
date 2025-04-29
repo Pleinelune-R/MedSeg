@@ -66,25 +66,24 @@ def process_rtstruct(rtstruct_path, dicom_files, output_dir, index):
         study_uid = rtstruct_ds.StudyInstanceUID 
  
         # Generate custom filenames 
-        label_filename = f"mask_{index}_{study_uid}.nii.gz" 
+        label_filename = f"mask_{index}_{study_uid}.nii.gz"  
         custom_label_path = os.path.join(output_dir,  label_filename) 
  
         # Check if the file already exists 
         if os.path.exists(custom_label_path):  
             logger.warning(f"File  {custom_label_path} already exists, skipping conversion.") 
-            return [] 
- 
-        # Convert RTStruct to NIfTI 
-        dicom_dir = os.path.dirname(dicom_files[0])  
-        dcmrtstruct2nii(rtstruct_path, dicom_dir, output_dir, structures=['GTV']) 
- 
-        # Rename label file 
-        default_label_path = os.path.join(output_dir,  "mask_GTV.nii.gz")  
-        if os.path.exists(default_label_path):  
-            os.rename(default_label_path,  custom_label_path) 
         else: 
-            logger.warning(f"Default  label file {default_label_path} not found.") 
-            return [] 
+            # Convert RTStruct to NIfTI 
+            dicom_dir = os.path.dirname(dicom_files[0])  
+            dcmrtstruct2nii(rtstruct_path, dicom_dir, output_dir, structures=['GTV']) 
+ 
+            # Rename label file 
+            default_label_path = os.path.join(output_dir,  "mask_GTV.nii.gz")  
+            if os.path.exists(default_label_path):  
+                os.rename(default_label_path,  custom_label_path) 
+            else: 
+                logger.warning(f"Default  label file {default_label_path} not found.") 
+                return [] 
  
         # Sort DICOM files by InstanceNumber 
         dicom_files_with_instance_number = [] 
@@ -170,5 +169,4 @@ def generate_dataset(folder_path, output_dir):
             dataset.extend(sample_data)  
  
     return dataset 
- 
  

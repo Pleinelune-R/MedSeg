@@ -7,27 +7,33 @@ from torchvision.transforms import Resize
  
 logger = MyLogger("data_iter") 
 
-## TODO: 分离不同序列作为多模态输入；归一化及增强数据；
+## TODO: 分离不同序列作为多模态输入；
 
-class MRDataset(Dataset): 
-    def __init__(self, images, labels, augment=False):  
-        self.images    = [] 
-        self.labels    = [] 
-        # resize to label size
-        if labels: 
-            target_size = labels[0].shape[-2:] 
-        else: 
-            target_size = (256, 256)  # default size 
-        resize = Resize(target_size) 
-        for img, lbl in zip(images, labels): 
-            img_tensor = torch.tensor(img,    dtype=torch.float32).unsqueeze(0)    
-            lbl_tensor = torch.tensor(lbl,    dtype=torch.long).unsqueeze(0)    
-            # squeeze to remove extra dimension(num_instance)
-            resized_img = resize(img_tensor).squeeze(0) 
-            resized_lbl = resize(lbl_tensor).squeeze(0) 
-            self.images.append(resized_img)    
-            self.labels.append(resized_lbl)    
-        self.augment    = augment 
+class MRDataset(Dataset):
+    def __init__(self, images, labels, augment=False):
+        self.images     = []
+        self.labels     = []
+        target_size = labels[0].shape[-2:] if labels else (256, 256)
+        resize = Resize(target_size)
+        
+        for img, lbl in zip(images, labels):
+            # to tensor
+            img_tensor = torch.tensor(img,  dtype=torch.float32).unsqueeze(0)   # shape: [1,H,W]
+            lbl_tensor = torch.tensor(lbl,  dtype=torch.long).unsqueeze(0) 
+            
+            # squeeze num_samples and num_instances
+            resized_img = resize(img_tensor).squeeze(0)  # shape: [C,H,W]
+            resized_lbl = resize(lbl_tensor).squeeze(0)
+            
+            # Min-Max Scaling to [0,1]
+            img_min, img_max = resized_img.min(),  resized_img.max() 
+            normalized_img = (resized_img - img_min) / (img_max - img_min + 1e-8) 
+            normalized_lbl = resized_lbl/255.0
+            
+            self.images.append(normalized_img) 
+            self.labels.append(normalized_lbl) 
+            
+        self.augment  = augment 
  
     def __len__(self): 
         return len(self.images)    
@@ -42,7 +48,7 @@ def show_data_iter(dataset, batch_size=4):
     labels = [sample['label'] for sample in dataset] 
  
     medical_dataset = MRDataset(images, labels) 
-    dataloader = DataLoader(medical_dataset, batch_size=batch_size, shuffle=True) 
+    dataloader = DataLoader(medical_dataset, batch_size=batch_size, shuffle=False) 
  
     for images, labels in dataloader: 
         fig, axes = plt.subplots(len(images),  2, figsize=(12, 6 * len(images))) 
