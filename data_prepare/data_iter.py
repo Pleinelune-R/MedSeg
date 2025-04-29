@@ -7,21 +7,24 @@ from monai.transforms  import Resize
  
 logger = MyLogger("data_iter") 
 
-
-# 现在还存在问题，一个文件夹里有不同STRUCT文件，会生成同样的文件
-# 目前要求不同患者现在放在./data的子文件夹
-
+## 还要修改iter维度（现在是num_sample，num_instance, H, W)
+## 注释和命名部分需要修改
  
 # Define the MedicalDataset class, inheriting from torch.utils.data.Dataset  
 class MedicalDataset(Dataset): 
     # Initialization function that accepts a list of images, a list of labels, and a flag for data augmentation 
-    def __init__(self, images, labels, augment=False): 
+    def __init__(self, images, labels, augment=False, target_size=None): 
         # Save the list of images 
         self.images  = images 
         # Save the list of labels 
         self.labels  = labels 
         # Save the flag for data augmentation 
         self.augment  = augment 
+        # Save the target size for resizing 
+        self.target_size  = target_size 
+        # Initialize the resizer if target size is provided 
+        if target_size is not None: 
+            self.resizer  = Resize(spatial_size=target_size) 
  
     # Return the length of the dataset 
     def __len__(self): 
@@ -39,43 +42,48 @@ class MedicalDataset(Dataset):
             # Data augmentation code can be added here 
             pass 
  
-        # Convert the image and label to torch.Tensor type 
-        image = torch.tensor(image,  dtype=torch.float32)  
-        label = torch.tensor(label,  dtype=torch.long)  
+        # Resize the image and label if target size is provided 
+        if self.target_size  is not None: 
+            image = self.resizer(torch.tensor(image,  dtype=torch.float32).unsqueeze(0)).squeeze(0)  
+            label = self.resizer(torch.tensor(label,  dtype=torch.long).unsqueeze(0)).squeeze(0)  
+        else: 
+            # Convert the image and label to torch.Tensor type 
+            image = torch.tensor(image,  dtype=torch.float32)  
+            label = torch.tensor(label,  dtype=torch.long)  
  
         return image, label 
  
-def data_iter(dataset, batch_size=4, patch_size=4): 
+def data_iter(dataset, batch_size=4, target_size=None): 
+    # Extract images and labels from the dataset 
+    images = [sample['image'] for sample in dataset] 
+    labels = [sample['label'] for sample in dataset] 
+ 
     # Create Dataset and DataLoader 
-    medical_dataset = MedicalDataset(dataset) 
+    medical_dataset = MedicalDataset(images, labels, target_size=target_size) 
     dataloader = DataLoader(medical_dataset, batch_size=batch_size, shuffle=True, num_workers=0) 
  
-    # Iterate through batch data 
-    for batch_idx, (images, labels) in enumerate(dataloader): 
-        logger.info(f"Batch  {batch_idx + 1}") 
-        # Print metadata for each sample 
-        for i in range(len(images)): 
-            sample = dataset[batch_idx * batch_size + i] 
-            logger.info(f"Sample  {batch_idx * batch_size + i + 1} Metadata:") 
-            logger.info(f"    SeriesNumber: {sample['SeriesNumber']}") 
-            logger.info(f"    StudyDescription: {sample['StudyDescription']}") 
-            logger.info(f"    SeriesDescription: {sample['SeriesDescription']}") 
-            logger.info(f"    spacing: {sample['spacing']}") 
-            logger.info(f"    spatial_shape: {sample['spatial_shape']}") 
-            logger.info(f"    space: {sample['space']}") 
+    # Iterate over the dataloader 
+    for images, labels in dataloader: 
+        num_samples = images.shape[0]  
+        # 创建一个大图，用于放置所有子图 
+        fig, axes = plt.subplots(num_samples,  2, figsize=(12, 6 * num_samples)) 
  
-        # Visualize images and labels 
-        fig, axes = plt.subplots(2,  patch_size, figsize=(15, 5)) 
-        for i in range(patch_size): 
-            if i >= images.shape[0]:   # Prevent index out of bounds 
-                break 
-            # Show the middle slice 
-            slice_idx = images.shape[2]  // 2 
-            axes[0, i].imshow(images[i, 0, slice_idx].cpu().numpy(), cmap='gray') 
-            axes[0, i].axis('off') 
-            axes[1, i].imshow(labels[i, 0, slice_idx].cpu().numpy(), cmap='jet', alpha=0.5) 
-            axes[1, i].axis('off') 
-        plt.suptitle(f"Batch  {batch_idx + 1}") 
+        for i in range(num_samples): 
+            # 提取当前图像和标签 
+            current_image = images[i, 25, :, :].numpy() 
+            current_label = labels[i, 25, :, :].numpy() 
+ 
+            # 绘制图像 
+            axes[i, 0].imshow(current_image) 
+            axes[i, 0].set_title('Image') 
+            axes[i, 0].axis('off') 
+ 
+            # 绘制标签 
+            axes[i, 1].imshow(current_label) 
+            axes[i, 1].set_title('Label') 
+            axes[i, 1].axis('off') 
+ 
+        plt.tight_layout()  
         plt.show()  
  
  
@@ -83,4 +91,6 @@ if __name__ == '__main__':
     folder_path = ".\\data" 
     output_dir = ".\\data\\output" 
     dataset = generate_dataset(folder_path, output_dir) 
-    data_iter(dataset, batch_size=2, patch_size=2)
+    # Set the target size to the desired shape 
+    target_size = (40, 1120, 1120) 
+    data_iter(dataset, batch_size=4, target_size=target_size) 
