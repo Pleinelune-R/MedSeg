@@ -8,7 +8,7 @@ from logger import MyLogger
 logger = MyLogger("data_prepare") 
  
  
-def find_rtstruct_files(folder_path): 
+def find_rtstruct_files(folder_path):  # find RTSTRUCT files 
     rtstruct_files = [] 
     for root, _, files in os.walk(folder_path):  
         for file in files: 
@@ -61,12 +61,13 @@ def match_dicom_file(rtstruct_path):
  
 def process_rtstruct(rtstruct_path, dicom_files, output_dir, index): 
     try: 
-        # read RTSTRUCT DICOM to get StudyInstanceUID 
+        # read RTSTRUCT DICOM to get StudyInstanceUID, SeriesNumber and Patient's name 
         rtstruct_ds = pydicom.dcmread(rtstruct_path,  force=True) 
-        study_uid = rtstruct_ds.StudyInstanceUID 
+        series_number = rtstruct_ds.SeriesNumber 
+        patient_name = str(rtstruct_ds.PatientName) if 'PatientName' in rtstruct_ds else 'Unknown' 
  
         # Generate custom filenames 
-        label_filename = f"mask_{index}_{study_uid}.nii.gz"  
+        label_filename = f"mask_{patient_name}_{series_number}.nii.gz"  
         custom_label_path = os.path.join(output_dir,  label_filename) 
  
         # Check if the file already exists 

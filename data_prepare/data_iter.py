@@ -27,8 +27,9 @@ class MRDataset(Dataset):
             
             # Min-Max Scaling to [0,1]
             img_min, img_max = resized_img.min(),  resized_img.max() 
+            lbl_max, lbl_min = resized_lbl.max(),  resized_lbl.min()
             normalized_img = (resized_img - img_min) / (img_max - img_min + 1e-8) 
-            normalized_lbl = resized_lbl/255.0
+            normalized_lbl = resized_lbl / (lbl_max - lbl_min + 1e-8)
             
             self.images.append(normalized_img) 
             self.labels.append(normalized_lbl) 
