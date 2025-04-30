@@ -1,8 +1,8 @@
 import torch 
 from torch.utils.data import Dataset, DataLoader 
 import matplotlib.pyplot as plt 
-from logger import MyLogger 
-from load_file import generate_dataset 
+from logger import MyLogger
+from .load_file import generate_dataset
 from torchvision.transforms import Resize 
  
 logger = MyLogger("data_iter") 
@@ -63,5 +63,5 @@ def show_data_iter(dataset, batch_size=4):
         plt.show()    
  
 if __name__ == '__main__': 
-    MRdatasets = generate_dataset(".\\data", ".\\data\\output")
+    MRdatasets = generate_dataset("..\\data", "..\\data\\output")
     show_data_iter(MRdatasets, batch_size=4)

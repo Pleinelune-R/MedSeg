@@ -26,3 +26,6 @@ get_image_data：根据指定的系列号和实例号，获取对应的图像数
 plot_single_image：可视化指定的图像数据。  
 ## 注意事项：
 请确保你的数据文件夹中包含 DICOM 格式的文件，并且路径为data/。  
+举例：data/Se0001/xxx.dicom
+一个文件夹内可以存放多个RTStruct文件，但要保证对应序列的DICOM也存在同一文件夹下。
+输出的nii.gz文件会存放在data/output/mask_患者姓名_序列号.nii.gz中。

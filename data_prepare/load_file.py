@@ -3,7 +3,7 @@ import pydicom
 from dcmrtstruct2nii import dcmrtstruct2nii 
 import SimpleITK as SpITK
  
-from logger import MyLogger 
+from logger import MyLogger
  
 logger = MyLogger("data_prepare") 
  
@@ -142,7 +142,7 @@ def process_rtstruct(rtstruct_path, dicom_files, output_dir, index):
  
         return dataset 
     except Exception as e: 
-        logger.error(f"Error  processing RTSTRUCT file: {rtstruct_path}, error: {e}") 
+        logger.error(f"Error processing RTSTRUCT file: {rtstruct_path}, error: {e}")
         return [] 
  
  
