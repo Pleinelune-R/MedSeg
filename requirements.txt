@@ -5,3 +5,4 @@ torchvision~=0.22.0
 pydicom~=3.0.1
 simpleitk~=2.4.1
 dcmrtstruct2nii~=5.0.0
+pytorch-lightning~=2.5.1

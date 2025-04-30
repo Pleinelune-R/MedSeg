@@ -1,6 +1,5 @@
 import logging
 import logging.handlers
-import os
 import sys
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
@@ -31,9 +30,9 @@ class MyLogger(logging.Logger):
 
         # file output handler
         file_handler = TimedRotatingFileHandler('log/' + name,
-                                                when='S',
-                                                interval=5,
-                                                backupCount=1,
+                                                when='H',
+                                                interval=1,
+                                                backupCount=2,
                                                 delay=True)
         file_handler.suffix = "%Y-%m-%d_%H-%M-%S.log"
         file_handler.setLevel(logging.DEBUG)
@@ -51,7 +50,7 @@ class MyLogger(logging.Logger):
         self.addHandler(file_handler)
         self.addHandler(stream_handler)
 
-        # logger add more info
+        # logger adds more info
         self.info(f'{name} Logger has been initialized')
 
 
