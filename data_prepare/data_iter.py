@@ -44,9 +44,9 @@ class MRDataset(Dataset):
         label = self.labels[idx]    
         return image, label 
  
-def show_data_iter(dataset, batch_size=4): 
-    images = [sample['image'] for sample in dataset] 
-    labels = [sample['label'] for sample in dataset] 
+def show_data_iter(dataset, batch_size=4):
+    images = [sample['image'] for sample in dataset]
+    labels = [sample['label'] for sample in dataset]
  
     medical_dataset = MRDataset(images, labels) 
     dataloader = DataLoader(medical_dataset, batch_size=batch_size, shuffle=False) 
@@ -63,5 +63,5 @@ def show_data_iter(dataset, batch_size=4):
         plt.show()    
  
 if __name__ == '__main__': 
-    dataset = generate_dataset(".\\data", ".\\data\\output") 
-    show_data_iter(dataset, batch_size=4) 
+    MRdatasets = generate_dataset(".\\data", ".\\data\\output")
+    show_data_iter(MRdatasets, batch_size=4)

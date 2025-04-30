@@ -1,7 +1,7 @@
 import os 
 import pydicom 
 from dcmrtstruct2nii import dcmrtstruct2nii 
-import SimpleITK as sitk 
+import SimpleITK as SpITK
  
 from logger import MyLogger 
  
@@ -101,8 +101,8 @@ def process_rtstruct(rtstruct_path, dicom_files, output_dir, index):
         dataset = [] 
         # read label file 
         if os.path.exists(custom_label_path):  
-            label_sitk = sitk.ReadImage(custom_label_path) 
-            label = sitk.GetArrayFromImage(label_sitk) 
+            label_sitk = SpITK.ReadImage(custom_label_path)
+            label = SpITK.GetArrayFromImage(label_sitk)
         else: 
             logger.warning(f"Custom  label file {custom_label_path} not found.") 
             label = None 
@@ -111,7 +111,7 @@ def process_rtstruct(rtstruct_path, dicom_files, output_dir, index):
             try: 
                 # read DICOM image 
                 ds = pydicom.dcmread(dicom_file,  force=True) 
-                image_sitk = sitk.ReadImage(dicom_file) 
+                image_sitk = SpITK.ReadImage(dicom_file)
                 spacing = image_sitk.GetSpacing() 
                 spatial_shape = image_sitk.GetSize() 
  
@@ -134,7 +134,7 @@ def process_rtstruct(rtstruct_path, dicom_files, output_dir, index):
                     'spatial_shape': spatial_shape, 
                     'space': image_sitk.GetDirection(),  # Spatial direction matrix 
                     'label': slice_label, 
-                    'image': sitk.GetArrayFromImage(image_sitk) 
+                    'image': SpITK.GetArrayFromImage(image_sitk)
                 } 
                 dataset.append(data_dict)  
             except Exception as e: 
