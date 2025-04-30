@@ -14,7 +14,7 @@ class MRDataset(Dataset):
         self.images     = []
         self.labels     = []
         target_size = labels[0].shape[-2:] if labels else (256, 256)
-        resize = Resize(target_size)
+        resize = Resize(target_size)   # change interpolation method here
         
         for img, lbl in zip(images, labels):
             # to tensor
