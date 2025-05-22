@@ -13,7 +13,7 @@ class MRDataset(Dataset):
     def __init__(self, images, labels, augment=False):
         self.images     = []
         self.labels     = []
-        target_size = labels[0].shape[-2:] if labels else (256, 256)
+        target_size = (256, 256)
         resize = Resize(target_size)   # change interpolation method here
         
         for img, lbl in zip(images, labels):

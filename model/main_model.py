@@ -22,10 +22,11 @@ class MainModel(pl.LightningModule):
         self.test_images  = []
         self.test_true_masks  = []
         self.test_pred_masks  = []
-
+        
         # module init
-        self.image_encoder  = ImageEncoder()
-        self.image_decoder  = ImageDecoder()
+        self.image_encoder  = ImageEncoder(img_size=(256, 256), in_channels=4, spatial_dims=2)
+        args = type('Args', (), {'align_score': False, 'n_prompts': 0})
+        self.image_decoder  = ImageDecoder(args = args)
         self.criterion  = torch.nn.MSELoss()
 
     def forward(self, x):
@@ -114,6 +115,7 @@ class MainModel(pl.LightningModule):
     # TODO: update parameters
 
 
+# 在 train 函数中检查数据加载
 def train(devices_numbers, save_dir):
     dataset = generate_dataset(".\\data", ".\\data\\output")
     images = [sample['image'] for sample in dataset]
@@ -121,12 +123,21 @@ def train(devices_numbers, save_dir):
     medical_dataset = MRDataset(images, labels)
     train_size = int(0.8 * len(medical_dataset))
     test_size = len(medical_dataset) - train_size
-    train_dataset, test_dataset = torch.utils.data.random_split(medical_dataset,  [train_size, test_size])
-    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False)
+    train_dataset, test_dataset = torch.utils.data.random_split(medical_dataset, [train_size, test_size])
+    # 增加 num_workers 参数
+    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=15)
+    test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, num_workers=15)
+
+    # 检查数据维度
+    for batch in train_loader:
+        x, y = batch
+        print(f"Input data shape: {x.shape}")  # 检查输入数据的形状
+        break
+
+        # 根据实际情况调整 in_channels 参数
     model = MainModel()
     trainer = pl.Trainer(
-        max_epochs=10,
+        max_epochs=5,
         accelerator='auto',
         devices=devices_numbers,
         precision="16-mixed",
@@ -150,6 +161,6 @@ def train(devices_numbers, save_dir):
         log_every_n_steps=10,
         logger=TensorBoardLogger(save_dir, name='test')
     )
-    trainer.fit(model,  train_dataloaders=train_loader, val_dataloaders=test_loader)
-    trainer.test(model,  dataloaders=test_loader)
+    trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=test_loader)
+    trainer.test(model, dataloaders=test_loader)
     return trainer
