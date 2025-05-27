@@ -3,9 +3,9 @@ import pydicom
 from dcmrtstruct2nii import dcmrtstruct2nii 
 import SimpleITK as SpITK
  
-from data_prepare.logger import MyLogger
+from logger import get_logger
  
-logger = MyLogger("data_prepare") 
+logger = get_logger("data_prepare") 
  
  
 def find_rtstruct_files(folder_path):  # find RTSTRUCT files 

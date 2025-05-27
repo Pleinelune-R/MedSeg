@@ -1,11 +1,11 @@
 import torch 
 from torch.utils.data import Dataset, DataLoader 
 import matplotlib.pyplot as plt 
-from data_prepare.logger import MyLogger
+from logger import get_logger
 from .load_file import generate_dataset, read_nii_files
 from torchvision.transforms import Resize 
  
-logger = MyLogger("data_iter") 
+logger = get_logger("data_iter") 
 
 ## TODO: 分离不同序列作为多模态输入；
 

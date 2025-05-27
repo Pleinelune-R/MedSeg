@@ -7,11 +7,11 @@ import matplotlib.pyplot  as plt
 
 from data_prepare.data_iter  import MRDataset
 from data_prepare.load_file  import generate_dataset, read_nii_files
-from data_prepare.logger import MyLogger
+from logger import get_logger
 from .image_deocder import ImageDecoder
 from .image_encoder import ImageEncoder
 
-logger = MyLogger("model")
+logger = get_logger("model")
 
 
 class MainModel(pl.LightningModule):
