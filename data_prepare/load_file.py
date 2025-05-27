@@ -3,7 +3,7 @@ import pydicom
 from dcmrtstruct2nii import dcmrtstruct2nii 
 import SimpleITK as SpITK
  
-from logger import MyLogger
+from data_prepare.logger import MyLogger
  
 logger = MyLogger("data_prepare") 
  
@@ -168,5 +168,88 @@ def generate_dataset(folder_path, output_dir):
         sample_data = process_rtstruct(rtstruct_path, dicom_files, output_dir, index) 
         if sample_data: 
             dataset.extend(sample_data)  
+ 
+    return dataset 
+
+ 
+def read_nii_files(folder_path): 
+    dataset = [] 
+    # 用于存储标签文件路径的字典，键为文件名主体，值为标签文件路径 
+    label_files = {} 
+ 
+    # 第一次遍历，找出所有的标签文件 
+    for root, _, files in os.walk(folder_path):  
+        for file in files: 
+            if file.endswith("_seg.nii")  or file.endswith("_seg.nii.gz"):  
+                # 获取文件名主体，例如从 BraTS20_Training_354_seg.nii  得到 BraTS20_Training_354 
+                base_name = file.rsplit("_",  1)[0] 
+                label_files[base_name] = os.path.join(root,  file) 
+ 
+    sample_data = {} 
+    # 第二次遍历，读取图像文件并关联标签 
+    for root, _, files in os.walk(folder_path):  
+        for file in files: 
+            # 检查文件是否为 flair, t1, t2, t1ce 结尾的图像文件 
+            if file.endswith(("_flair.nii",  "_flair.nii.gz",  "_t1.nii",  "_t1.nii.gz",  "_t2.nii",  "_t2.nii.gz",  "_t1ce.nii",  "_t1ce.nii.gz")):  
+                # 获取文件名主体，用于查找对应的标签文件 
+                base_name = file.rsplit("_",  1)[0] 
+                # 查找对应的标签文件 
+                label_path = label_files.get(base_name)  
+                if not label_path: 
+                    # 如果没有找到对应的标签文件，跳过该图像文件 
+                    logger.warning(f"No  label found for file: {file}, skipping...") 
+                    continue 
+ 
+                try: 
+                    # 构建文件的完整路径 
+                    nii_path = os.path.join(root,  file) 
+                    # 读取 NIfTI 图像 
+                    image_sitk = SpITK.ReadImage(nii_path) 
+                    # 获取图像的间距 
+                    spacing = image_sitk.GetSpacing() 
+                    # 获取图像的空间形状 
+                    spatial_shape = image_sitk.GetSize() 
+ 
+                    # 简单起见，为 SeriesNumber、StudyDescription 和 SeriesDescription 设置默认值 
+                    series_number = 0 
+                    study_desc = "N/A" 
+                    series_desc = "N/A" 
+ 
+                    # 读取标签文件 
+                    label_sitk = SpITK.ReadImage(label_path) 
+                    label = SpITK.GetArrayFromImage(label_sitk) 
+ 
+                    # 创建包含图像信息的字典 
+                    data_dict = { 
+                        'SeriesNumber': series_number, 
+                        'StudyDescription': study_desc, 
+                        'SeriesDescription': series_desc, 
+                        'spacing': spacing, 
+                        'spatial_shape': spatial_shape, 
+                        'space': image_sitk.GetDirection(), 
+                        'label': label, 
+                        'image': SpITK.GetArrayFromImage(image_sitk) 
+                    } 
+ 
+                    if base_name not in sample_data: 
+                        sample_data[base_name] = {'images': [], 'label': label} 
+                    sample_data[base_name]['images'].append(data_dict['image']) 
+ 
+                except Exception as e: 
+                    # 记录读取文件时的错误信息 
+                    logger.warning(f"Error  reading NIfTI file: {file}, error: {e}") 
+ 
+    # 整理样本数据 
+    for base_name, data in sample_data.items():  
+        images = data['images'] 
+        label = data['label'] 
+        # 确保图像按正确顺序排列 
+        sorted_images = sorted(images, key=lambda x: [ 
+            "_flair.nii"  in file, 
+            "_t1.nii"  in file, 
+            "_t2.nii"  in file, 
+            "_t1ce.nii"  in file 
+        ]) 
+        dataset.append({'images':  sorted_images, 'label': label}) 
  
     return dataset 

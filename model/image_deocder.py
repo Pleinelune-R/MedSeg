@@ -74,7 +74,7 @@ class ContextUnetrUpBlock(nn.Module):
         out = torch.cat((out,  skip), dim=1) 
         out = self.conv_block(out)  
         return out 
-    
+
 class ImageDecoder(nn.Module):    
     def __init__( 
         self, 

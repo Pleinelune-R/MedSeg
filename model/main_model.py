@@ -2,12 +2,12 @@ import pytorch_lightning as pl
 import torch
 from torch.utils.data  import DataLoader
 from pytorch_lightning.utilities.types  import OptimizerLRScheduler
-from pytorch_lightning.loggers  import TensorBoardLogger  # 显式导入 Logger
+from pytorch_lightning.loggers  import TensorBoardLogger  
 import matplotlib.pyplot  as plt
 
 from data_prepare.data_iter  import MRDataset
-from data_prepare.load_file  import generate_dataset
-from logger import MyLogger
+from data_prepare.load_file  import generate_dataset, read_nii_files
+from data_prepare.logger import MyLogger
 from .image_deocder import ImageDecoder
 from .image_encoder import ImageEncoder
 
@@ -117,8 +117,8 @@ class MainModel(pl.LightningModule):
 
 # 在 train 函数中检查数据加载
 def train(devices_numbers, save_dir):
-    dataset = generate_dataset(".\\data", ".\\data\\output")
-    images = [sample['image'] for sample in dataset]
+    dataset = read_nii_files("C://Users/ForRiver/OneDrive/Desktop/Pre/BIONET/MRImg/BraTS020/BraTS2020_TrainingData/MICCAI_BraTS2020_TrainingData")
+    images = [sample['images'] for sample in dataset]
     labels = [sample['label'] for sample in dataset]
     medical_dataset = MRDataset(images, labels)
     train_size = int(0.8 * len(medical_dataset))

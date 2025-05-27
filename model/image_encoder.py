@@ -99,7 +99,7 @@ class ImageEncoder(nn.Module):
             in_channels = 4 * feature_size,
             out_channels = 8 * feature_size,
             kernel_size = 3, stride=2, norm_name=norm_name, res_block=True)
-        
+    
     def forward(self, x_in, report_in=None):
         # TODO : model forward
         hidden_states_out = []
@@ -116,6 +116,5 @@ class ImageEncoder(nn.Module):
         hidden_states_out.append(enc3)
         hidden_states_out.append(dec4)
 
-        hidden_states_out, _, _ = self.interactive_alignment(hidden_states_out, report_in, x_in)
         return hidden_states_out
     
