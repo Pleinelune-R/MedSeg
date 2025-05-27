@@ -71,8 +71,11 @@ class ContextUnetrUpBlock(nn.Module):
     def forward(self, inp, skip): 
         # number of channels for skip should equals to out_channels 
         out = self.transp_conv(inp)  
+        print(out.shape)
         out = torch.cat((out,  skip), dim=1) 
+        print(out.shape)
         out = self.conv_block(out)  
+        print(out.shape)
         return out 
 
 class ImageDecoder(nn.Module):    
@@ -82,44 +85,67 @@ class ImageDecoder(nn.Module):
         norm_name: tuple | str = "instance", 
         spatial_dims: int = 3, 
         args=None, 
-        context=False  # 新增参数并初始化 self.context  
+        context=False  
     ) -> None: 
         super().__init__() 
-        self.context  = context  # 初始化 self.context  
-        # decoder 
-        self.decoder4  = ContextUnetrUpBlock(spatial_dims=spatial_dims, 
-            in_channels = feature_size * 8 , 
-            out_channels = feature_size * 4, 
-            kernel_size = 3, upsample_kernel_size=2, norm_name=norm_name, res_block=True, 
-            add_channels = (args.n_prompts if args.align_score  else 0 if self.context  else 0)) 
- 
-        self.decoder3  = ContextUnetrUpBlock(spatial_dims=spatial_dims, 
-            in_channels = feature_size * 4 - (args.n_prompts if args.align_score  else 0 if self.context  else 0), 
-            out_channels = feature_size * 2, 
-            kernel_size = 3, upsample_kernel_size=2, norm_name=norm_name, 
-            add_channels = (args.n_prompts if args.align_score  else 0 if self.context  else 0)) 
+        self.context = context
         
-        self.decoder2  = ContextUnetrUpBlock(spatial_dims=spatial_dims, 
-            in_channels = feature_size * 2 - (args.n_prompts if args.align_score  else 0 if self.context  else 0), 
-            out_channels = feature_size, 
-            kernel_size = 3, upsample_kernel_size=2, norm_name=norm_name, 
-            add_channels = (args.n_prompts if args.align_score  else 0 if self.context  else 0)) 
+        # Calculate the actual input channels for each decoder block
+        add_ch = args.n_prompts if args.align_score else 0 if self.context else 0
+        
+        # decoder 
+        self.decoder4 = ContextUnetrUpBlock(
+            spatial_dims=spatial_dims, 
+            in_channels=192,  # hidden_states_out[4]
+            out_channels=96,  # hidden_states_out[3]
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=True, 
+            add_channels=0
+        ) 
  
-        self.decoder1  = ContextUnetrUpBlock(spatial_dims=spatial_dims, 
-            in_channels = feature_size - (args.n_prompts if args.align_score  else 0 if self.context  else 0), 
-            out_channels = feature_size, 
-            kernel_size = 3, upsample_kernel_size=2, norm_name=norm_name, 
-            add_channels =(args.n_prompts if args.align_score  else 0 if self.context  else 0)) 
+        self.decoder3 = ContextUnetrUpBlock(
+            spatial_dims=spatial_dims, 
+            in_channels=96,   # Previous output
+            out_channels=48,  # hidden_states_out[2]
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            add_channels=0
+        ) 
+        
+        self.decoder2 = ContextUnetrUpBlock(
+            spatial_dims=spatial_dims, 
+            in_channels=48,   # Previous output
+            out_channels=24,  # hidden_states_out[1]
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            add_channels=0
+        ) 
  
-        # 原代码中缺少 self.out  的定义，这里简单示例 
-        self.out  = nn.Conv3d(feature_size, 1, kernel_size=1) 
+        self.decoder1 = ContextUnetrUpBlock(
+            spatial_dims=spatial_dims, 
+            in_channels=24,   # Previous output
+            out_channels=24,  # Final feature size
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            add_channels=0
+        ) 
  
+        self.out = nn.Conv3d(24, 1, kernel_size=1)
+
     def forward(self, hidden_states_out): 
         # visual decoder 
-        dec2 = self.decoder4(hidden_states_out[4],  hidden_states_out[3]) 
-        dec1 = self.decoder3(dec2,  hidden_states_out[2]) 
-        dec0 = self.decoder2(dec1,  hidden_states_out[1]) 
-        out = self.decoder1(dec0,  hidden_states_out[0]) 
- 
+        dec2 = self.decoder4(hidden_states_out[4], hidden_states_out[3]) 
+        print(dec2.shape)
+        dec1 = self.decoder3(dec2, hidden_states_out[2]) 
+        print(dec1.shape)
+        dec0 = self.decoder2(dec1, hidden_states_out[1]) 
+        print(dec0.shape)
+        out = self.decoder1(dec0, hidden_states_out[0]) 
+        print(out.shape)
         logits = self.out(out)  
         return logits 

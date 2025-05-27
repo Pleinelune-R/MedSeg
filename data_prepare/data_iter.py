@@ -2,7 +2,13 @@ import torch
 from torch.utils.data import Dataset, DataLoader 
 import matplotlib.pyplot as plt 
 from logger import get_logger
-from .load_file import generate_dataset, read_nii_files
+import os
+# 禁用 TensorFlow 日志输出
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0=all, 1=INFO, 2=WARNING, 3=ERROR
+import tensorflow as tf
+tf.get_logger().setLevel('ERROR')  # 只显示错误信息
+
+from .load_file import read_nii_files
 from torchvision.transforms import Resize 
  
 logger = get_logger("data_iter") 
@@ -23,61 +29,69 @@ from pytorch_lightning.loggers  import TensorBoardLogger
  
 class MRDataset(Dataset): 
     def __init__(self, images, labels, augment=False): 
-        self.all_images   = [] 
-        self.all_labels   = [] 
-        target_size = (256, 256) 
-        resize = Resize(target_size)  # change interpolation method here 
- 
-        for img_list, label in zip(images, labels): 
-            num_slices = img_list[0].shape[0] 
-            for slice_idx in range(num_slices): 
-                slice_images = [] 
-                for img in img_list: 
-                    img_slice = img[slice_idx] 
-                    # to tensor 
-                    img_tensor = torch.tensor(img_slice,   dtype=torch.float32).unsqueeze(0)    # shape: [1,H,W] 
-                    # squeeze num_samples and num_instances 
-                    resized_img = resize(img_tensor).squeeze(0)  # shape: [C,H,W] 
-                    # Min-Max Scaling to [0,1] 
-                    img_min, img_max = resized_img.min(),   resized_img.max()   
-                    normalized_img = (resized_img - img_min) / (img_max - img_min + 1e-8) 
-                    slice_images.append(normalized_img)   
- 
-                label_slice = label[slice_idx] 
-                lbl_tensor = torch.tensor(label_slice,   dtype=torch.long).unsqueeze(0)   
-                resized_lbl = resize(lbl_tensor).squeeze(0) 
-                lbl_max, lbl_min = resized_lbl.max(),   resized_lbl.min()   
-                normalized_lbl = resized_lbl / (lbl_max - lbl_min + 1e-8) 
- 
-                slice_images = torch.stack(slice_images,   dim=0)  # shape: [4, H, W] 
- 
-                self.all_images.append(slice_images)   
-                self.all_labels.append(normalized_lbl)   
- 
-        self.augment   = augment 
- 
+        self.all_images = []
+        self.all_labels = []
+        target_size = (256, 256)  # 目标大小
+        resize = Resize(target_size)
+        
+        # 假设 images 的形状是 [n, 155, 240, 240]，其中 n 是样本数量
+        num_samples = len(images)
+        for sample_idx in range(num_samples):
+            # 获取完整的体积数据
+            img_volume = images[sample_idx]  # [155, 240, 240]
+            label_volume = labels[sample_idx]  # [155, 240, 240]
+            
+            # 从中间部分截取128个切片
+            start_idx = (img_volume.shape[0] - 128) // 2
+            end_idx = start_idx + 128
+            img_volume = img_volume[start_idx:end_idx]  # [128, 240, 240]
+            label_volume = label_volume[start_idx:end_idx]  # [128, 240, 240]
+            
+            # 转换为tensor
+            img_tensor = torch.tensor(img_volume, dtype=torch.float32)  # [128, 240, 240]
+            lbl_tensor = torch.tensor(label_volume, dtype=torch.float32)  # [128, 240, 240]
+            
+            # 调整大小到 256x256
+            # 需要添加通道维度进行resize，然后再移除
+            img_tensor = resize(img_tensor.unsqueeze(1)).squeeze(1)  # [128, 256, 256]
+            lbl_tensor = resize(lbl_tensor.unsqueeze(1)).squeeze(1)  # [128, 256, 256]
+            
+            # Min-Max 归一化
+            img_min, img_max = img_tensor.min(), img_tensor.max()
+            normalized_img = (img_tensor - img_min) / (img_max - img_min + 1e-8)
+            
+            lbl_min, lbl_max = lbl_tensor.min(), lbl_tensor.max()
+            normalized_lbl = (lbl_tensor - lbl_min) / (lbl_max - lbl_min + 1e-8)
+            
+            self.all_images.append(normalized_img)
+            self.all_labels.append(normalized_lbl)
+        
+        self.augment = augment
+    
     def __len__(self): 
-        return len(self.all_images)   
- 
+        return len(self.all_images)
+    
     def __getitem__(self, idx): 
-        image = self.all_images[idx]   
-        label = self.all_labels[idx]   
-        return image, label 
+        image = self.all_images[idx]  # [128, 256, 256]
+        label = self.all_labels[idx]  # [128, 256, 256]
+        return image, label
+
 def show_data_iter(dataset, batch_size=4):
-    images = [sample['image'] for sample in dataset]
-    labels = [sample['label'] for sample in dataset]
+    images = dataset['images']  # 直接使用字典中的数据
+    labels = dataset['labels']
  
     medical_dataset = MRDataset(images, labels) 
     dataloader = DataLoader(medical_dataset, batch_size=batch_size, shuffle=False) 
  
     for images, labels in dataloader: 
-        fig, axes = plt.subplots(len(images),  2, figsize=(12, 6 * len(images))) 
+        print(f"Batch shape: {images.shape}")  # 应该是 [batch_size, 128, 256, 256]
+        fig, axes = plt.subplots(len(images), 2, figsize=(12, 6 * len(images))) 
         for i in range(len(images)): 
-            # remove extra dimension
-            img = images[i].squeeze(0).numpy() 
-            lbl = labels[i].squeeze(0).numpy() 
-            axes[i, 0].imshow(img) 
-            axes[i, 1].imshow(lbl) 
+            # 显示中间的切片
+            middle_slice = images[i, images.shape[1]//2].numpy()
+            middle_label = labels[i, labels.shape[1]//2].numpy()
+            axes[i, 0].imshow(middle_slice) 
+            axes[i, 1].imshow(middle_label) 
         plt.tight_layout()    
         plt.show()    
  

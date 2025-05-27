@@ -99,6 +99,7 @@ class ImageEncoder(nn.Module):
             in_channels = 4 * feature_size,
             out_channels = 8 * feature_size,
             kernel_size = 3, stride=2, norm_name=norm_name, res_block=True)
+
     
     def forward(self, x_in, report_in=None):
         # TODO : model forward
@@ -109,12 +110,18 @@ class ImageEncoder(nn.Module):
         enc2 = self.encoder3(enc1)
         enc3 = self.encoder4(enc2)
         dec4 = self.encoder10(enc3)
-    
+
         hidden_states_out.append(enc0)
         hidden_states_out.append(enc1)
         hidden_states_out.append(enc2)
         hidden_states_out.append(enc3)
         hidden_states_out.append(dec4)
+        print(hidden_states_out[0].shape)
+        print(hidden_states_out[1].shape)
+        print(hidden_states_out[2].shape)
+        print(hidden_states_out[3].shape)
+        print(hidden_states_out[4].shape)
+        
 
         return hidden_states_out
     
