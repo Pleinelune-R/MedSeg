@@ -116,12 +116,6 @@ class ImageEncoder(nn.Module):
         hidden_states_out.append(enc2)
         hidden_states_out.append(enc3)
         hidden_states_out.append(dec4)
-        print(hidden_states_out[0].shape)
-        print(hidden_states_out[1].shape)
-        print(hidden_states_out[2].shape)
-        print(hidden_states_out[3].shape)
-        print(hidden_states_out[4].shape)
-        
 
         return hidden_states_out
     

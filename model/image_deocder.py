@@ -71,11 +71,8 @@ class ContextUnetrUpBlock(nn.Module):
     def forward(self, inp, skip): 
         # number of channels for skip should equals to out_channels 
         out = self.transp_conv(inp)  
-        print(out.shape)
         out = torch.cat((out,  skip), dim=1) 
-        print(out.shape)
         out = self.conv_block(out)  
-        print(out.shape)
         return out 
 
 class ImageDecoder(nn.Module):    
@@ -135,17 +132,14 @@ class ImageDecoder(nn.Module):
             add_channels=0
         ) 
  
-        self.out = nn.Conv3d(24, 1, kernel_size=1)
+        self.out = nn.Conv3d(24, 1, kernel_size=1)  # 输出通道数为1，因为我们使用sigmoid来预测每个像素的概率
 
     def forward(self, hidden_states_out): 
         # visual decoder 
         dec2 = self.decoder4(hidden_states_out[4], hidden_states_out[3]) 
-        print(dec2.shape)
         dec1 = self.decoder3(dec2, hidden_states_out[2]) 
-        print(dec1.shape)
         dec0 = self.decoder2(dec1, hidden_states_out[1]) 
-        print(dec0.shape)
         out = self.decoder1(dec0, hidden_states_out[0]) 
-        print(out.shape)
+        out = torch.nn.functional.interpolate(out, size=(out.shape[2]*2, out.shape[3]*2, out.shape[4]*2), mode='trilinear', align_corners=True)
         logits = self.out(out)  
         return logits 

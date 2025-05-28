@@ -56,15 +56,18 @@ class MRDataset(Dataset):
             img_tensor = resize(img_tensor.unsqueeze(1)).squeeze(1)  # [128, 256, 256]
             lbl_tensor = resize(lbl_tensor.unsqueeze(1)).squeeze(1)  # [128, 256, 256]
             
-            # Min-Max 归一化
+            # Min-Max 归一化图像
             img_min, img_max = img_tensor.min(), img_tensor.max()
             normalized_img = (img_tensor - img_min) / (img_max - img_min + 1e-8)
             
-            lbl_min, lbl_max = lbl_tensor.min(), lbl_tensor.max()
-            normalized_lbl = (lbl_tensor - lbl_min) / (lbl_max - lbl_min + 1e-8)
-            
+            # 保持标签的原始值，不进行二值化
+            # BraTS数据集中的标签：
+            # 0: 背景
+            # 1: 坏死核心/非增强肿瘤核心
+            # 2: 水肿
+            # 4: 增强肿瘤
             self.all_images.append(normalized_img)
-            self.all_labels.append(normalized_lbl)
+            self.all_labels.append(lbl_tensor)
         
         self.augment = augment
     
