@@ -91,16 +91,6 @@ class ImageDecoder(nn.Module):
         add_ch = args.n_prompts if args.align_score else 0 if self.context else 0
         
         # decoder 
-        self.decoder4 = ContextUnetrUpBlock(
-            spatial_dims=spatial_dims, 
-            in_channels=192,  # hidden_states_out[4]
-            out_channels=96,  # hidden_states_out[3]
-            kernel_size=3,
-            upsample_kernel_size=2,
-            norm_name=norm_name,
-            res_block=True, 
-            add_channels=0
-        ) 
  
         self.decoder3 = ContextUnetrUpBlock(
             spatial_dims=spatial_dims, 
@@ -132,12 +122,11 @@ class ImageDecoder(nn.Module):
             add_channels=0
         ) 
  
-        self.out = nn.Conv3d(24, 1, kernel_size=1)  # 输出通道数为1，因为我们使用sigmoid来预测每个像素的概率
+        self.out = nn.Conv3d(24, 3, kernel_size=1)  # 输出通道数为1，因为我们使用sigmoid来预测每个像素的概率
 
     def forward(self, hidden_states_out): 
         # visual decoder 
-        dec2 = self.decoder4(hidden_states_out[4], hidden_states_out[3]) 
-        dec1 = self.decoder3(dec2, hidden_states_out[2]) 
+        dec1 = self.decoder3(hidden_states_out[3], hidden_states_out[2]) 
         dec0 = self.decoder2(dec1, hidden_states_out[1]) 
         out = self.decoder1(dec0, hidden_states_out[0]) 
         out = torch.nn.functional.interpolate(out, size=(out.shape[2]*2, out.shape[3]*2, out.shape[4]*2), mode='trilinear', align_corners=True)

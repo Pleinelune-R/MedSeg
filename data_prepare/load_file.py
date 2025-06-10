@@ -1,15 +1,11 @@
 import os 
-# import pydicom 
-# from dcmrtstruct2nii import dcmrtstruct2nii 
-import SimpleITK as SpITK
-import numpy as np
- 
-from logger import get_logger
+import SimpleITK as SpITK 
+import numpy as np 
+from logger import get_logger 
  
 logger = get_logger("data_prepare") 
  
- 
-# def find_rtstruct_files(folder_path):  # find RTSTRUCT files 
+ # def find_rtstruct_files(folder_path):  # find RTSTRUCT files 
 #     rtstruct_files = [] 
 #     for root, _, files in os.walk(folder_path):  
 #         for file in files: 
@@ -172,7 +168,7 @@ logger = get_logger("data_prepare")
  
 #     return dataset 
 
- 
+
 def read_nii_files(folder_path): 
     dataset = [] 
     # 用于存储标签文件路径的字典，键为文件名主体，值为标签文件路径 
@@ -181,29 +177,34 @@ def read_nii_files(folder_path):
     # 第一次遍历，找出所有的标签文件 
     for root, _, files in os.walk(folder_path):  
         for file in files: 
-            if file.endswith("_seg.nii") or file.endswith("_seg.nii.gz"):  
-                # 获取文件名主体，例如从 BraTS20_Training_354_seg.nii 得到 BraTS20_Training_354 
-                base_name = file.rsplit("_", 1)[0] 
-                label_files[base_name] = os.path.join(root, file) 
+            if file.endswith("_seg.nii")  or file.endswith("_seg.nii.gz"):  
+                # 获取文件名主体，例如从 BraTS20_Training_354_seg.nii  得到 BraTS20_Training_354 
+                base_name = file.rsplit("_",  1)[0] 
+                label_files[base_name] = os.path.join(root,  file) 
  
     sample_data = {} 
+    num_samples = 0
     # 第二次遍历，读取图像文件并关联标签 
-    for root, _, files in os.walk(folder_path):  
+    for root, _, files in os.walk(folder_path): 
         for file in files: 
+
             # 检查文件是否为 flair, t1, t2, t1ce 结尾的图像文件 
-            if file.endswith(("_flair.nii", "_flair.nii.gz", "_t1.nii", "_t1.nii.gz", "_t2.nii", "_t2.nii.gz", "_t1ce.nii", "_t1ce.nii.gz")):  
+            if file.endswith(("_flair.nii",  "_flair.nii.gz",  "_t1.nii",  "_t1.nii.gz",  "_t2.nii",  "_t2.nii.gz",  "_t1ce.nii",  "_t1ce.nii.gz")):  
                 # 获取文件名主体，用于查找对应的标签文件 
-                base_name = file.rsplit("_", 1)[0] 
+
+                base_name = file.rsplit("_",  1)[0] 
                 # 查找对应的标签文件 
                 label_path = label_files.get(base_name)  
                 if not label_path: 
                     # 如果没有找到对应的标签文件，跳过该图像文件 
-                    logger.warning(f"No label found for file: {file}, skipping...") 
+                    logger.warning(f"No  label found for file: {file}, skipping...") 
                     continue 
  
                 try: 
+                    num_samples += 1 
+                    print(num_samples) 
                     # 构建文件的完整路径 
-                    nii_path = os.path.join(root, file) 
+                    nii_path = os.path.join(root,  file) 
                     # 读取 NIfTI 图像 
                     image_sitk = SpITK.ReadImage(nii_path) 
                     # 获取图像的间距 
@@ -231,35 +232,65 @@ def read_nii_files(folder_path):
                         'label': label, 
                         'image': SpITK.GetArrayFromImage(image_sitk) 
                     } 
- 
                     if base_name not in sample_data: 
                         sample_data[base_name] = {'images': [], 'label': label} 
                     sample_data[base_name]['images'].append(data_dict['image']) 
  
                 except Exception as e: 
                     # 记录读取文件时的错误信息 
-                    logger.warning(f"Error reading NIfTI file: {file}, error: {e}") 
+                    logger.warning(f"Error  reading NIfTI file: {file}, error: {e}") 
  
     # 整理样本数据 
-    all_images = []
-    all_labels = []
+    all_images = [] 
+    all_labels = []  
     for base_name, data in sample_data.items():  
         images = data['images'] 
         label = data['label'] 
         # 确保图像按正确顺序排列 
         sorted_images = sorted(images, key=lambda x: [ 
-            "_flair.nii" in file, 
-            "_t1.nii" in file, 
-            "_t2.nii" in file, 
-            "_t1ce.nii" in file 
+            "_flair.nii"  in file, 
+            "_t1.nii"  in file, 
+            "_t2.nii"  in file, 
+            "_t1ce.nii"  in file 
         ]) 
-        # 将图像数据重新组织为所需的形状
-        stacked_images = np.stack(sorted_images, axis=0)  # [4, 155, 256, 256]
-        all_images.append(stacked_images)
-        all_labels.append(label)
-    
-    # 将所有样本的图像数据堆叠在一起
-    final_images = np.stack(all_images, axis=1)  # [4, n, 155, 256, 256]
-    final_labels = np.stack(all_labels, axis=0)  # [n, 155, 256, 256]
-    
-    return {'images': final_images, 'labels': final_labels}
+        # 将图像数据重新组织为所需的形状 
+        stacked_images = np.stack(sorted_images,  axis=0)  # [1, 155, 256, 256]
+        all_images.append(stacked_images)  
+        all_labels.append(label)  
+
+
+    all_labels = np.stack(all_labels,  axis=0) 
+
+    # BraTS数据集中的标签：
+    # 0: 背景
+    # 1: 坏死核心/非增强肿瘤核心
+    # 2: 水肿
+    # 4: 增强肿瘤
+    mask_WT = all_labels.copy()
+    mask_WT[mask_WT == 1] = 1
+    mask_WT[mask_WT == 2] = 1
+    mask_WT[mask_WT == 4] = 1
+
+    mask_TC = all_labels.copy()
+    mask_TC[mask_TC == 1] = 1
+    mask_TC[mask_TC == 2] = 0
+    mask_TC[mask_TC == 4] = 1
+
+    mask_ET = all_labels.copy()
+    mask_ET[mask_ET == 1] = 0
+    mask_ET[mask_ET == 2] = 0
+    mask_ET[mask_ET == 4] = 1
+
+    all_labels = np.stack([mask_WT, mask_TC, mask_ET], axis=0)
+    # 将所有样本的图像数据堆叠在一起 
+    final_images = np.stack(all_images,  axis=1)  # [4, n, 155, 256, 256] 
+    logger.info("Datasets sorted successfully") 
+    print(all_labels.shape)
+    print(final_images.shape)
+    return {'images': final_images, 'labels': all_labels} 
+ 
+ 
+
+ 
+
+ 

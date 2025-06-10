@@ -1,10 +1,12 @@
 from model.main_model import train
 from logger import get_logger
 
+
 if __name__ == '__main__':
     logger = get_logger("main")
     try:
-        trainer = train(devices_numbers=[0], save_dir=".\\checkpoints")
+        trainer = train(devices_numbers=[0], save_dir="./checkpoints")
         logger.info("Training completed successfully")
     except Exception as e:
         logger.error(f"An error occurred: {e}")
+                                                    

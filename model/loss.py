@@ -1,35 +1,43 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
+import torch 
+import torch.nn  as nn 
+import torch.nn.functional  as F 
+ 
 class DiceLoss(nn.Module):
-    def __init__(self, smooth=1e-5):
+    """Calculate dice loss."""
+    def __init__(self, eps: float = 1e-9):
         super(DiceLoss, self).__init__()
-        self.smooth = smooth
+        self.eps = eps
         
-    def forward(self, pred, target):
-        # 将预测值转换为概率
-        pred = torch.sigmoid(pred)
+    def forward(self,
+                logits: torch.Tensor,
+                targets: torch.Tensor) -> torch.Tensor:
         
-        # 计算交集（在所有空间维度上求和）
-        intersection = (pred * target).sum(dim=(1, 2, 3))  # 在所有空间维度上求和
+        num = targets.size(0)
+        probability_sigmoid = torch.sigmoid(logits)
+        pred_masks = (probability_sigmoid > 0.5).float()  # threshold at 0.5 to get binary predictions
+        probability_sigmoid = probability_sigmoid.view(num, -1)
+        targets = targets.view(num, -1)
+        assert(probability_sigmoid.shape == targets.shape)
         
-        # 计算 Dice 系数
-        dice = (2. * intersection + self.smooth) / (
-            pred.sum(dim=(1, 2, 3)) + target.sum(dim=(1, 2, 3)) + self.smooth
-        )
+        intersection = 2.0 * (probability_sigmoid * targets).sum()
+        union = probability_sigmoid.sum() + targets.sum()
+        dice_score = (intersection + self.eps) / union
+        #print("intersection", intersection, union, dice_score)
+        return pred_masks, 1.0 - dice_score
         
-        # 返回批次的平均 Dice Loss
-        return 1 - dice.mean()
-
-class CombinedLoss(nn.Module):
-    def __init__(self, alpha=0.5, smooth=1e-5):
-        super(CombinedLoss, self).__init__()
-        self.alpha = alpha
-        self.dice_loss = DiceLoss(smooth=smooth)
-        self.bce_loss = nn.BCEWithLogitsLoss()
         
-    def forward(self, pred, target):
-        dice_loss = self.dice_loss(pred, target)
-        bce_loss = self.bce_loss(pred, target)
-        return self.alpha * dice_loss + (1 - self.alpha) * bce_loss 
+class BCEDiceLoss(nn.Module):
+    """Compute objective loss: BCE loss + DICE loss."""
+    def __init__(self):
+        super(BCEDiceLoss, self).__init__()
+        self.bce = nn.BCEWithLogitsLoss()
+        self.dice = DiceLoss()
+        
+    def forward(self, 
+                logits: torch.Tensor,
+                targets: torch.Tensor) -> torch.Tensor:
+        assert(logits.shape == targets.shape)
+        pre_masks, dice_loss = self.dice(logits, targets)
+        bce_loss = self.bce(logits, targets)
+        
+        return pre_masks, bce_loss + dice_loss
