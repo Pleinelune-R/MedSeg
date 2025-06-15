@@ -170,58 +170,66 @@ logger = get_logger("data_prepare")
 
 
 def read_nii_files(folder_path): 
+    """
+    Read and process NIfTI files from the BraTS dataset.
+    This function handles both image files (flair, t1, t2, t1ce) and their corresponding segmentation labels.
+    
+    Args:
+        folder_path (str): Path to the directory containing BraTS dataset files
+        
+    Returns:
+        dict: Dictionary containing processed images and labels
+            - images: numpy array of shape [4, n, 155, 256, 256] (4 modalities, n samples, 155 slices, 256x256 resolution)
+            - labels: numpy array of shape [3, n, 155, 256, 256] (3 segmentation masks, n samples, 155 slices, 256x256 resolution)
+    """
     dataset = [] 
-    # 用于存储标签文件路径的字典，键为文件名主体，值为标签文件路径 
+    # Dictionary to store label file paths, key is base filename, value is label file path
     label_files = {} 
  
-    # 第一次遍历，找出所有的标签文件 
+    # First pass: Find all segmentation label files
     for root, _, files in os.walk(folder_path):  
         for file in files: 
-            if file.endswith("_seg.nii")  or file.endswith("_seg.nii.gz"):  
-                # 获取文件名主体，例如从 BraTS20_Training_354_seg.nii  得到 BraTS20_Training_354 
-                base_name = file.rsplit("_",  1)[0] 
-                label_files[base_name] = os.path.join(root,  file) 
+            if file.endswith("_seg.nii") or file.endswith("_seg.nii.gz"):  
+                # Extract base name (e.g., from 'BraTS20_Training_354_seg.nii' to 'BraTS20_Training_354')
+                base_name = file.rsplit("_", 1)[0] 
+                label_files[base_name] = os.path.join(root, file) 
  
     sample_data = {} 
     num_samples = 0
-    # 第二次遍历，读取图像文件并关联标签 
+    
+    # Second pass: Read image files and associate with labels
     for root, _, files in os.walk(folder_path): 
         for file in files: 
-
-            # 检查文件是否为 flair, t1, t2, t1ce 结尾的图像文件 
-            if file.endswith(("_flair.nii",  "_flair.nii.gz",  "_t1.nii",  "_t1.nii.gz",  "_t2.nii",  "_t2.nii.gz",  "_t1ce.nii",  "_t1ce.nii.gz")):  
-                # 获取文件名主体，用于查找对应的标签文件 
-
-                base_name = file.rsplit("_",  1)[0] 
-                # 查找对应的标签文件 
+            # Check if file is one of the four MRI modalities (flair, t1, t2, t1ce)
+            if file.endswith(("_flair.nii", "_flair.nii.gz", "_t1.nii", "_t1.nii.gz", 
+                            "_t2.nii", "_t2.nii.gz", "_t1ce.nii", "_t1ce.nii.gz")):  
+                base_name = file.rsplit("_", 1)[0] 
+                # Find corresponding label file
                 label_path = label_files.get(base_name)  
                 if not label_path: 
-                    # 如果没有找到对应的标签文件，跳过该图像文件 
-                    logger.warning(f"No  label found for file: {file}, skipping...") 
+                    logger.warning(f"No label found for file: {file}, skipping...") 
                     continue 
  
                 try: 
                     num_samples += 1 
                     print(num_samples) 
-                    # 构建文件的完整路径 
-                    nii_path = os.path.join(root,  file) 
-                    # 读取 NIfTI 图像 
+                    # Construct full file path
+                    nii_path = os.path.join(root, file) 
+                    # Read NIfTI image
                     image_sitk = SpITK.ReadImage(nii_path) 
-                    # 获取图像的间距 
                     spacing = image_sitk.GetSpacing() 
-                    # 获取图像的空间形状 
                     spatial_shape = image_sitk.GetSize() 
  
-                    # 简单起见，为 SeriesNumber、StudyDescription 和 SeriesDescription 设置默认值 
+                    # Set default values for metadata
                     series_number = 0 
                     study_desc = "N/A" 
                     series_desc = "N/A" 
  
-                    # 读取标签文件 
+                    # Read label file
                     label_sitk = SpITK.ReadImage(label_path) 
                     label = SpITK.GetArrayFromImage(label_sitk) 
  
-                    # 创建包含图像信息的字典 
+                    # Create dictionary with image information
                     data_dict = { 
                         'SeriesNumber': series_number, 
                         'StudyDescription': study_desc, 
@@ -237,53 +245,58 @@ def read_nii_files(folder_path):
                     sample_data[base_name]['images'].append(data_dict['image']) 
  
                 except Exception as e: 
-                    # 记录读取文件时的错误信息 
-                    logger.warning(f"Error  reading NIfTI file: {file}, error: {e}") 
+                    logger.warning(f"Error reading NIfTI file: {file}, error: {e}") 
  
-    # 整理样本数据 
+    # Organize sample data
     all_images = [] 
     all_labels = []  
     for base_name, data in sample_data.items():  
         images = data['images'] 
         label = data['label'] 
-        # 确保图像按正确顺序排列 
+        # Ensure images are in correct order (flair, t1, t2, t1ce)
         sorted_images = sorted(images, key=lambda x: [ 
-            "_flair.nii"  in file, 
-            "_t1.nii"  in file, 
-            "_t2.nii"  in file, 
-            "_t1ce.nii"  in file 
+            "_flair.nii" in file, 
+            "_t1.nii" in file, 
+            "_t2.nii" in file, 
+            "_t1ce.nii" in file 
         ]) 
-        # 将图像数据重新组织为所需的形状 
-        stacked_images = np.stack(sorted_images,  axis=0)  # [1, 155, 256, 256]
+        # Stack images to desired shape
+        stacked_images = np.stack(sorted_images, axis=0)  # [1, 155, 256, 256]
         all_images.append(stacked_images)  
         all_labels.append(label)  
 
+    all_labels = np.stack(all_labels, axis=0) 
 
-    all_labels = np.stack(all_labels,  axis=0) 
-
-    # BraTS数据集中的标签：
-    # 0: 背景
-    # 1: 坏死核心/非增强肿瘤核心
-    # 2: 水肿
-    # 4: 增强肿瘤
+    # Process BraTS segmentation labels:
+    # 0: Background
+    # 1: Necrotic and non-enhancing tumor core
+    # 2: Edema
+    # 4: Enhancing tumor
+    
+    # Create three binary masks:
+    # 1. Whole Tumor (WT): combines labels 1, 2, and 4
     mask_WT = all_labels.copy()
     mask_WT[mask_WT == 1] = 1
     mask_WT[mask_WT == 2] = 1
     mask_WT[mask_WT == 4] = 1
 
+    # 2. Tumor Core (TC): combines labels 1 and 4
     mask_TC = all_labels.copy()
     mask_TC[mask_TC == 1] = 1
     mask_TC[mask_TC == 2] = 0
     mask_TC[mask_TC == 4] = 1
 
+    # 3. Enhancing Tumor (ET): only label 4
     mask_ET = all_labels.copy()
     mask_ET[mask_ET == 1] = 0
     mask_ET[mask_ET == 2] = 0
     mask_ET[mask_ET == 4] = 1
 
+    # Stack the three masks
     all_labels = np.stack([mask_WT, mask_TC, mask_ET], axis=0)
-    # 将所有样本的图像数据堆叠在一起 
-    final_images = np.stack(all_images,  axis=1)  # [4, n, 155, 256, 256] 
+    
+    # Stack all sample images
+    final_images = np.stack(all_images, axis=1)  # [4, n, 155, 256, 256] 
     logger.info("Datasets sorted successfully") 
     print(all_labels.shape)
     print(final_images.shape)
