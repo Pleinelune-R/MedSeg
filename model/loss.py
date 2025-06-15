@@ -40,4 +40,4 @@ class BCEDiceLoss(nn.Module):
         pre_masks, dice_loss = self.dice(logits, targets)
         bce_loss = self.bce(logits, targets)
         
-        return pre_masks, bce_loss + dice_loss
+        return pre_masks, bce_loss, dice_loss, bce_loss + dice_loss
