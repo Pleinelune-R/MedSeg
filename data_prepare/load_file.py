@@ -5,7 +5,142 @@ from logger import get_logger
  
 logger = get_logger("data_prepare") 
  
- # def find_rtstruct_files(folder_path):  # find RTSTRUCT files 
+
+def read_nii_files(folder_path): 
+    """
+    Read and process NIfTI files from the BraTS dataset.
+    This function handles both image files (flair, t1, t2, t1ce) and their corresponding segmentation labels.
+    
+    Args:
+        folder_path (str): Path to the directory containing BraTS dataset files
+        
+    Returns:
+        dict: Dictionary containing processed images and labels
+            - images: numpy array of shape [4, n, 155, 256, 256] (4 modalities, n samples, 155 slices, 256x256 resolution)
+            - labels: numpy array of shape [3, n, 155, 256, 256] (3 segmentation masks, n samples, 155 slices, 256x256 resolution)
+    """
+    dataset = [] 
+    # Dictionary to store label file paths, key is base filename, value is label file path
+    label_files = {} 
+ 
+    # First pass: Find all segmentation label files
+    for root, _, files in os.walk(folder_path):  
+        for file in files: 
+            if file.endswith("_seg.nii") or file.endswith("_seg.nii.gz"):  
+                # Extract base name (e.g., from 'BraTS20_Training_354_seg.nii' to 'BraTS20_Training_354')
+                base_name = file.rsplit("_", 1)[0] 
+                label_files[base_name] = os.path.join(root, file) 
+ 
+    sample_data = {} 
+    num_samples = 0
+    
+    # Second pass: Read image files and associate with labels
+    for root, _, files in os.walk(folder_path): 
+        for file in files: 
+            # Check if file is one of the four MRI modalities (flair, t1, t2, t1ce)
+            if file.endswith(("_flair.nii", "_flair.nii.gz", "_t1.nii", "_t1.nii.gz", 
+                            "_t2.nii", "_t2.nii.gz", "_t1ce.nii", "_t1ce.nii.gz")):  
+                base_name = file.rsplit("_", 1)[0] 
+                # Find corresponding label file
+                label_path = label_files.get(base_name)  
+                if not label_path: 
+                    logger.warning(f"No label found for file: {file}, skipping...") 
+                    continue 
+ 
+                try: 
+                    num_samples += 1 
+                    print(num_samples) 
+                    # Construct full file path
+                    nii_path = os.path.join(root, file) 
+                    # Read NIfTI image
+                    image_sitk = SpITK.ReadImage(nii_path) 
+                    spacing = image_sitk.GetSpacing() 
+                    spatial_shape = image_sitk.GetSize() 
+ 
+                    # Set default values for metadata
+                    series_number = 0 
+                    study_desc = "N/A" 
+                    series_desc = "N/A" 
+ 
+                    # Read label file
+                    label_sitk = SpITK.ReadImage(label_path) 
+                    label = SpITK.GetArrayFromImage(label_sitk) 
+ 
+                    # Create dictionary with image information
+                    data_dict = { 
+                        'SeriesNumber': series_number, 
+                        'StudyDescription': study_desc, 
+                        'SeriesDescription': series_desc, 
+                        'spacing': spacing, 
+                        'spatial_shape': spatial_shape, 
+                        'space': image_sitk.GetDirection(), 
+                        'label': label, 
+                        'image': SpITK.GetArrayFromImage(image_sitk) 
+                    } 
+                    if base_name not in sample_data: 
+                        sample_data[base_name] = {'images': [], 'label': label} 
+                    sample_data[base_name]['images'].append(data_dict['image']) 
+ 
+                except Exception as e: 
+                    logger.warning(f"Error reading NIfTI file: {file}, error: {e}") 
+ 
+    # Organize sample data
+    all_images = [] 
+    all_labels = []  
+    for base_name, data in sample_data.items():  
+        images = data['images'] 
+        label = data['label'] 
+        # Ensure images are in correct order (flair, t1, t2, t1ce)
+        sorted_images = sorted(images, key=lambda x: [ 
+            "_flair.nii" in file, 
+            "_t1.nii" in file, 
+            "_t2.nii" in file, 
+            "_t1ce.nii" in file 
+        ]) 
+        # Stack images to desired shape
+        stacked_images = np.stack(sorted_images, axis=0)  # [1, 155, 256, 256]
+        all_images.append(stacked_images)  
+        all_labels.append(label)  
+
+    all_labels = np.stack(all_labels, axis=0) 
+
+    # Process BraTS segmentation labels:
+    # 0: Background
+    # 1: Necrotic and non-enhancing tumor core
+    # 2: Edema
+    # 4: Enhancing tumor
+    
+    # Create three binary masks:
+    # 1. Whole Tumor (WT): combines labels 1, 2, and 4
+    mask_WT = all_labels.copy()
+    mask_WT[mask_WT == 1] = 1
+    mask_WT[mask_WT == 2] = 1
+    mask_WT[mask_WT == 4] = 1
+
+    # 2. Tumor Core (TC): combines labels 1 and 4
+    mask_TC = all_labels.copy()
+    mask_TC[mask_TC == 1] = 1
+    mask_TC[mask_TC == 2] = 0
+    mask_TC[mask_TC == 4] = 1
+
+    # 3. Enhancing Tumor (ET): only label 4
+    mask_ET = all_labels.copy()
+    mask_ET[mask_ET == 1] = 0
+    mask_ET[mask_ET == 2] = 0
+    mask_ET[mask_ET == 4] = 1
+
+    # Stack the three masks
+    all_labels = np.stack([mask_WT, mask_TC, mask_ET], axis=0)
+    
+    # Stack all sample images
+    final_images = np.stack(all_images, axis=1)  # [4, n, 155, 256, 256] 
+    logger.info("Datasets sorted successfully") 
+    print(all_labels.shape)
+    print(final_images.shape)
+    return {'images': final_images, 'labels': all_labels} 
+ 
+ 
+# def find_rtstruct_files(folder_path):  # find RTSTRUCT files 
 #     rtstruct_files = [] 
 #     for root, _, files in os.walk(folder_path):  
 #         for file in files: 
@@ -167,143 +302,6 @@ logger = get_logger("data_prepare")
 #             dataset.extend(sample_data)  
  
 #     return dataset 
-
-
-def read_nii_files(folder_path): 
-    """
-    Read and process NIfTI files from the BraTS dataset.
-    This function handles both image files (flair, t1, t2, t1ce) and their corresponding segmentation labels.
-    
-    Args:
-        folder_path (str): Path to the directory containing BraTS dataset files
-        
-    Returns:
-        dict: Dictionary containing processed images and labels
-            - images: numpy array of shape [4, n, 155, 256, 256] (4 modalities, n samples, 155 slices, 256x256 resolution)
-            - labels: numpy array of shape [3, n, 155, 256, 256] (3 segmentation masks, n samples, 155 slices, 256x256 resolution)
-    """
-    dataset = [] 
-    # Dictionary to store label file paths, key is base filename, value is label file path
-    label_files = {} 
- 
-    # First pass: Find all segmentation label files
-    for root, _, files in os.walk(folder_path):  
-        for file in files: 
-            if file.endswith("_seg.nii") or file.endswith("_seg.nii.gz"):  
-                # Extract base name (e.g., from 'BraTS20_Training_354_seg.nii' to 'BraTS20_Training_354')
-                base_name = file.rsplit("_", 1)[0] 
-                label_files[base_name] = os.path.join(root, file) 
- 
-    sample_data = {} 
-    num_samples = 0
-    
-    # Second pass: Read image files and associate with labels
-    for root, _, files in os.walk(folder_path): 
-        for file in files: 
-            # Check if file is one of the four MRI modalities (flair, t1, t2, t1ce)
-            if file.endswith(("_flair.nii", "_flair.nii.gz", "_t1.nii", "_t1.nii.gz", 
-                            "_t2.nii", "_t2.nii.gz", "_t1ce.nii", "_t1ce.nii.gz")):  
-                base_name = file.rsplit("_", 1)[0] 
-                # Find corresponding label file
-                label_path = label_files.get(base_name)  
-                if not label_path: 
-                    logger.warning(f"No label found for file: {file}, skipping...") 
-                    continue 
- 
-                try: 
-                    num_samples += 1 
-                    print(num_samples) 
-                    # Construct full file path
-                    nii_path = os.path.join(root, file) 
-                    # Read NIfTI image
-                    image_sitk = SpITK.ReadImage(nii_path) 
-                    spacing = image_sitk.GetSpacing() 
-                    spatial_shape = image_sitk.GetSize() 
- 
-                    # Set default values for metadata
-                    series_number = 0 
-                    study_desc = "N/A" 
-                    series_desc = "N/A" 
- 
-                    # Read label file
-                    label_sitk = SpITK.ReadImage(label_path) 
-                    label = SpITK.GetArrayFromImage(label_sitk) 
- 
-                    # Create dictionary with image information
-                    data_dict = { 
-                        'SeriesNumber': series_number, 
-                        'StudyDescription': study_desc, 
-                        'SeriesDescription': series_desc, 
-                        'spacing': spacing, 
-                        'spatial_shape': spatial_shape, 
-                        'space': image_sitk.GetDirection(), 
-                        'label': label, 
-                        'image': SpITK.GetArrayFromImage(image_sitk) 
-                    } 
-                    if base_name not in sample_data: 
-                        sample_data[base_name] = {'images': [], 'label': label} 
-                    sample_data[base_name]['images'].append(data_dict['image']) 
- 
-                except Exception as e: 
-                    logger.warning(f"Error reading NIfTI file: {file}, error: {e}") 
- 
-    # Organize sample data
-    all_images = [] 
-    all_labels = []  
-    for base_name, data in sample_data.items():  
-        images = data['images'] 
-        label = data['label'] 
-        # Ensure images are in correct order (flair, t1, t2, t1ce)
-        sorted_images = sorted(images, key=lambda x: [ 
-            "_flair.nii" in file, 
-            "_t1.nii" in file, 
-            "_t2.nii" in file, 
-            "_t1ce.nii" in file 
-        ]) 
-        # Stack images to desired shape
-        stacked_images = np.stack(sorted_images, axis=0)  # [1, 155, 256, 256]
-        all_images.append(stacked_images)  
-        all_labels.append(label)  
-
-    all_labels = np.stack(all_labels, axis=0) 
-
-    # Process BraTS segmentation labels:
-    # 0: Background
-    # 1: Necrotic and non-enhancing tumor core
-    # 2: Edema
-    # 4: Enhancing tumor
-    
-    # Create three binary masks:
-    # 1. Whole Tumor (WT): combines labels 1, 2, and 4
-    mask_WT = all_labels.copy()
-    mask_WT[mask_WT == 1] = 1
-    mask_WT[mask_WT == 2] = 1
-    mask_WT[mask_WT == 4] = 1
-
-    # 2. Tumor Core (TC): combines labels 1 and 4
-    mask_TC = all_labels.copy()
-    mask_TC[mask_TC == 1] = 1
-    mask_TC[mask_TC == 2] = 0
-    mask_TC[mask_TC == 4] = 1
-
-    # 3. Enhancing Tumor (ET): only label 4
-    mask_ET = all_labels.copy()
-    mask_ET[mask_ET == 1] = 0
-    mask_ET[mask_ET == 2] = 0
-    mask_ET[mask_ET == 4] = 1
-
-    # Stack the three masks
-    all_labels = np.stack([mask_WT, mask_TC, mask_ET], axis=0)
-    
-    # Stack all sample images
-    final_images = np.stack(all_images, axis=1)  # [4, n, 155, 256, 256] 
-    logger.info("Datasets sorted successfully") 
-    print(all_labels.shape)
-    print(final_images.shape)
-    return {'images': final_images, 'labels': all_labels} 
- 
- 
-
  
 
  

@@ -2,22 +2,9 @@ import torch
 from torch.utils.data import Dataset, DataLoader 
 import matplotlib.pyplot as plt 
 from logger import get_logger 
-import os 
-
-# Disable TensorFlow logging output
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0=all, 1=INFO, 2=WARNING, 3=ERROR 
-import tensorflow as tf 
-tf.get_logger().setLevel('ERROR')   # Only show error messages
-
 from torchvision.transforms import Resize 
 
 logger = get_logger("data_iter") 
-
-# Import required libraries
-import SimpleITK as SpITK 
-import os 
-import pytorch_lightning as pl 
-from pytorch_lightning.loggers import TensorBoardLogger 
 
 class MRDataset(Dataset): 
     """

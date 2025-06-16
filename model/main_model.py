@@ -228,8 +228,8 @@ class MainModel(pl.LightningModule):
     # TODO: update parameters 
  
 # Training function: loads data, splits, and runs training/testing
-def train(devices_numbers, save_dir): 
-    dataset = read_nii_files("/home/Datasets/bionet/Dataset/lsj_MICCAI_BraTS2020_TrainingData/") 
+def train(dataset_path, devices_numbers, save_dir="./checkpoints"): 
+    dataset = read_nii_files(dataset_path) 
     images = dataset['images']  # [4, n, 155, 256, 256] 
     labels = dataset['labels']  # [3, n, 155, 256, 256]，确保这里是三通道的 
     logger.info("Datasets loaded successfully") 
@@ -245,7 +245,7 @@ def train(devices_numbers, save_dir):
         in_channels=1,
         
         # Training parameters
-        batch_size=2,  
+        batch_size=32,  
         max_epochs=80,  # 增加训练轮数
         learning_rate=5e-4,  # 调整学习率
         weight_decay=1e-5,  # 减小权重衰减
@@ -277,7 +277,7 @@ def train(devices_numbers, save_dir):
         max_epochs=model.config.max_epochs,
         accelerator='gpu', 
         devices=devices_numbers, 
-        precision="16", 
+        precision="32", 
         callbacks=[ 
             pl.callbacks.EarlyStopping(  
                 monitor='val_loss',  # Monitor validation loss
