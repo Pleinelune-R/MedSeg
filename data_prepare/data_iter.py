@@ -13,10 +13,6 @@ class MRDataset(Dataset):
     Custom Dataset class for handling medical imaging data (MRI scans)
     Processes 3D volumes of medical images and their corresponding segmentation labels
     """
-    """
-    Custom Dataset class for handling medical imaging data (MRI scans)
-    Processes 3D volumes of medical images and their corresponding segmentation labels
-    """
     def __init__(self, images, labels, augment=False): 
         self.all_images = [] 
         self.all_labels = [] 
@@ -91,58 +87,55 @@ class MRDataset(Dataset):
         """Return the total number of samples in the dataset"""
         return len(self.all_images)  
 
-        """Return the total number of samples in the dataset"""
-        return len(self.all_images)  
-
     def __getitem__(self, idx): 
         """Return a single sample (image and its corresponding label)"""
         image = self.all_images[idx]   # Shape: [4, 128, 256, 256] for 4 channels
         label = self.all_labels[idx]   # Shape: [3, 128, 256, 256] 
         return image, label 
 
-def show_data_iter(dataset, batch_size=4): 
-    """
-    Visualize the dataset by displaying sample images and their labels
-    Args:
-        dataset: Dictionary containing 'images' and 'labels'
-        batch_size: Number of samples to display
-    """
-    images = dataset['images']  # Shape: [4, n, 155, 240, 240]
-    labels = dataset['labels']  # Shape: [3, n, 155, 240, 240]
+# def show_data_iter(dataset, batch_size=4): 
+#     """
+#     Visualize the dataset by displaying sample images and their labels
+#     Args:
+#         dataset: Dictionary containing 'images' and 'labels'
+#         batch_size: Number of samples to display
+#     """
+#     images = dataset['images']  # Shape: [4, n, 155, 240, 240]
+#     labels = dataset['labels']  # Shape: [3, n, 155, 240, 240]
 
-    medical_dataset = MRDataset(images, labels) 
-    dataloader = DataLoader(medical_dataset, batch_size=batch_size, shuffle=False) 
+#     medical_dataset = MRDataset(images, labels) 
+#     dataloader = DataLoader(medical_dataset, batch_size=batch_size, shuffle=False) 
 
-    for batch_images, batch_labels in dataloader: 
-        print(f"Batch images shape: {batch_images.shape}")   # Expected: [batch_size, 4, 128, 256, 256]
-        print(f"Batch labels shape: {batch_labels.shape}")   # Expected: [batch_size, 3, 128, 256, 256]
+#     for batch_images, batch_labels in dataloader: 
+#         print(f"Batch images shape: {batch_images.shape}")   # Expected: [batch_size, 4, 128, 256, 256]
+#         print(f"Batch labels shape: {batch_labels.shape}")   # Expected: [batch_size, 3, 128, 256, 256]
         
-        # Create figure with appropriate number of rows and columns
-        num_samples = len(batch_images)
-        fig, axes = plt.subplots(num_samples, 5, figsize=(20, 4 * num_samples))  # 5 columns: 4 channels + 1 label
+#         # Create figure with appropriate number of rows and columns
+#         num_samples = len(batch_images)
+#         fig, axes = plt.subplots(num_samples, 5, figsize=(20, 4 * num_samples))  # 5 columns: 4 channels + 1 label
         
-        # Handle single sample case
-        if num_samples == 1:
-            axes = axes.reshape(1, -1)
+#         # Handle single sample case
+#         if num_samples == 1:
+#             axes = axes.reshape(1, -1)
             
-        for i in range(num_samples): 
-            # Display middle slice for each channel
-            middle_slice_idx = batch_images.shape[2] // 2
+#         for i in range(num_samples): 
+#             # Display middle slice for each channel
+#             middle_slice_idx = batch_images.shape[2] // 2
             
-            # Display all 4 image channels
-            for channel in range(4):
-                middle_slice = batch_images[i, channel, middle_slice_idx].cpu().numpy()
-                axes[i, channel].imshow(middle_slice, cmap='gray')
-                axes[i, channel].set_title(f'Channel {channel+1}')
-                axes[i, channel].axis('off')
+#             # Display all 4 image channels
+#             for channel in range(4):
+#                 middle_slice = batch_images[i, channel, middle_slice_idx].cpu().numpy()
+#                 axes[i, channel].imshow(middle_slice, cmap='gray')
+#                 axes[i, channel].set_title(f'Channel {channel+1}')
+#                 axes[i, channel].axis('off')
             
-            # Display first label channel (Whole Tumor mask)
-            middle_label = batch_labels[i, 0, middle_slice_idx].cpu().numpy()
-            axes[i, 4].imshow(middle_label, cmap='gray')
-            axes[i, 4].set_title('Whole Tumor Mask')
-            axes[i, 4].axis('off')
+#             # Display first label channel (Whole Tumor mask)
+#             middle_label = batch_labels[i, 0, middle_slice_idx].cpu().numpy()
+#             axes[i, 4].imshow(middle_label, cmap='gray')
+#             axes[i, 4].set_title('Whole Tumor Mask')
+#             axes[i, 4].axis('off')
             
-        plt.tight_layout()  
-        plt.show()
-        break  # Only show first batch
+#         plt.tight_layout()  
+#         plt.show()
+#         break  # Only show first batch
 

@@ -1,12 +1,11 @@
-import pytorch_lightning as pl 
+import os
 import torch 
+import numpy as np 
+import pytorch_lightning as pl 
 from torch.utils.data  import DataLoader 
 from pytorch_lightning.utilities.types  import OptimizerLRScheduler 
 from pytorch_lightning.loggers  import TensorBoardLogger 
 import matplotlib.pyplot  as plt 
-import numpy as np 
-import os
- 
 from data_prepare.data_iter  import MRDataset 
 from data_prepare.load_file  import read_nii_files 
 from logger import get_logger 
@@ -376,8 +375,6 @@ def train(dataset_path, devices_numbers, save_dir="./checkpoints"):
     for batch in train_loader: 
         x, y = batch 
         print(f"Input data shape: {x.shape}")  
-        print(f"Label data shape: {y.shape}")   # Ensure label is 3-channel
-        break 
         print(f"Label data shape: {y.shape}")   # Ensure label is 3-channel
         break 
 

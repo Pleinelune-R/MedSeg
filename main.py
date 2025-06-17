@@ -8,8 +8,6 @@ if __name__ == '__main__':
     try:
         dataset_path = "/home/Datasets/bionet/Dataset/lsj_MICCAI_BraTS2020_TrainingData/"
         trainer = train(dataset_path, devices_numbers=[0])
-        dataset_path = "/home/Datasets/bionet/Dataset/lsj_MICCAI_BraTS2020_TrainingData/"
-        trainer = train(dataset_path, devices_numbers=[0])
         logger.info("Training completed successfully")
     except Exception as e:
         logger.error(f"An error occurred: {e}")

@@ -9,9 +9,7 @@ import numpy as np
 from monai.networks.blocks import UnetrBasicBlock
 from monai.utils import ensure_tuple_rep
 import logging
-import logging
 
-logger = logging.getLogger(__name__)
 logger = logging.getLogger(__name__)
 
 class ImageEncoder(nn.Module):
@@ -111,11 +109,6 @@ class ImageEncoder(nn.Module):
         hidden_states_out.append(enc1)
         hidden_states_out.append(enc2)
         hidden_states_out.append(enc3)
-        logger.debug(f"Encoder hidden states shapes:")
-        logger.debug(f"enc0: {hidden_states_out[0].shape}")
-        logger.debug(f"enc1: {hidden_states_out[1].shape}")
-        logger.debug(f"enc2: {hidden_states_out[2].shape}")
-        logger.debug(f"enc3: {hidden_states_out[3].shape}")
         logger.debug(f"Encoder hidden states shapes:")
         logger.debug(f"enc0: {hidden_states_out[0].shape}")
         logger.debug(f"enc1: {hidden_states_out[1].shape}")

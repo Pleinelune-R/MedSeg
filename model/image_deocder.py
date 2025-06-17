@@ -5,8 +5,6 @@ from typing import Union
 from collections.abc  import Sequence 
 import logging
 logger = logging.getLogger(__name__)
-import logging
-logger = logging.getLogger(__name__)
  
 from monai.networks.blocks.dynunet_block  import UnetBasicBlock, UnetResBlock, get_conv_layer 
  
@@ -134,14 +132,9 @@ class ImageDecoder(nn.Module):
     def forward(self, hidden_states_out): 
         # visual decoder 
         dec1 = self.decoder3(hidden_states_out[3], hidden_states_out[2]) 
-        dec1 = self.decoder3(hidden_states_out[3], hidden_states_out[2]) 
         dec0 = self.decoder2(dec1, hidden_states_out[1]) 
         out = self.decoder1(dec0, hidden_states_out[0]) 
         out = torch.nn.functional.interpolate(out, size=(out.shape[2]*2, out.shape[3]*2, out.shape[4]*2), mode='trilinear', align_corners=True)
-        logger.debug(f"Decoder hidden states shapes:")
-        logger.debug(f"dec1: {dec1.shape}")
-        logger.debug(f"dec0: {dec0.shape}")
-        logger.debug(f"out: {out.shape}")
         logger.debug(f"Decoder hidden states shapes:")
         logger.debug(f"dec1: {dec1.shape}")
         logger.debug(f"dec0: {dec0.shape}")
