@@ -127,18 +127,30 @@ class ImageDecoder(nn.Module):
             add_channels=0
         )
 
+        self.decoder0 = ContextUnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=base_channels,       # 24
+            out_channels=base_channels,      # 24
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            add_channels=0
+        )
+
+        self.out = nn.Conv3d(base_channels, 4, kernel_size=1) 
+
         self.out = nn.Conv3d(base_channels, 4, kernel_size=1)
 
     def forward(self, hidden_states_out):
         # visual decoder 
-        dec1 = self.decoder3(hidden_states_out[3], hidden_states_out[2])
-        dec0 = self.decoder2(dec1, hidden_states_out[1])
-        out = self.decoder1(dec0, hidden_states_out[0])
-        out = torch.nn.functional.interpolate(out, size=(out.shape[2] * 2, out.shape[3] * 2, out.shape[4] * 2),
-                                              mode='trilinear', align_corners=True)
+        dec1 = self.decoder3(hidden_states_out[3], hidden_states_out[2]) 
+        dec0 = self.decoder2(dec1, hidden_states_out[1]) 
+        dec_out = self.decoder1(dec0, hidden_states_out[0]) 
+        out = self.decoder0(dec_out, None) 
         logger.debug(f"Decoder hidden states shapes:")
         logger.debug(f"dec1: {dec1.shape}")
         logger.debug(f"dec0: {dec0.shape}")
+        logger.debug(f"dec_out: {dec_out.shape}")
         logger.debug(f"out: {out.shape}")
         logits = self.out(out)
         return logits

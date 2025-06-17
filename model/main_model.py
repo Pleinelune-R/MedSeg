@@ -352,7 +352,7 @@ def train(dataset_path, devices_numbers, save_dir="./checkpoints"):
         save_dir (str): Directory to save model checkpoints and logs
         max_samples (int, optional): Maximum number of samples to use for training. If None, use all available samples.
     """
-    dataset = read_nii_files(dataset_path, max_samples=200)
+    dataset = read_nii_files(dataset_path, max_samples=500) 
     images = dataset['images']  # [4, n, 155, 240, 240] 
     labels = dataset['labels']  # [4, n, 155, 240, 240]
     logger.info(f"Datasets loaded successfully with {images.shape[1]} samples")

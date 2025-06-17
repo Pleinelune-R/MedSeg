@@ -108,6 +108,7 @@ class ImageEncoder(nn.Module):
         hidden_states_out.append(enc1)
         hidden_states_out.append(enc2)
         hidden_states_out.append(enc3)
+        
         logger.debug(f"Encoder hidden states shapes:")
         logger.debug(f"enc0: {hidden_states_out[0].shape}")
         logger.debug(f"enc1: {hidden_states_out[1].shape}")
