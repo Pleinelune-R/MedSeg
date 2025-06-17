@@ -1,31 +1,30 @@
 from __future__ import annotations
 
-import pytorch_lightning as pl  # maybe can use pl
-from torch import nn
-
+import logging
 from collections.abc import Sequence
-import numpy as np
 
+import numpy as np
 from monai.networks.blocks import UnetrBasicBlock
 from monai.utils import ensure_tuple_rep
-import logging
+from torch import nn
 
 logger = logging.getLogger(__name__)
 
+
 class ImageEncoder(nn.Module):
     def __init__(
-        self,
-        img_size: Sequence[int] | int,
-        in_channels: int,
-        feature_size: int = 24,
-        norm_name: tuple | str = "instance",
-        drop_rate: float = 0.0,
-        attn_drop_rate: float = 0.0,
-        dropout_path_rate: float = 0.0,
-        normalize: bool = True,
-        spatial_dims: int = 3,
-        context=False,
-    )-> None:
+            self,
+            img_size: Sequence[int] | int,
+            in_channels: int,
+            feature_size: int = 24,
+            norm_name: tuple | str = "instance",
+            drop_rate: float = 0.0,
+            attn_drop_rate: float = 0.0,
+            dropout_path_rate: float = 0.0,
+            normalize: bool = True,
+            spatial_dims: int = 3,
+            context=False,
+    ) -> None:
         """
         Args:
             img_size: dimension of input image.
@@ -72,30 +71,30 @@ class ImageEncoder(nn.Module):
 
         if not (0 <= dropout_path_rate <= 1):
             raise ValueError("drop path rate should be between 0 and 1.")
-        
+
         self.context = context
         self.normalize = normalize
 
         self.encoder1 = UnetrBasicBlock(spatial_dims=spatial_dims,
-            in_channels = in_channels,
-            out_channels = feature_size,
-            kernel_size =3, stride=2, norm_name=norm_name, res_block=True)
+                                        in_channels=in_channels,
+                                        out_channels=feature_size,
+                                        kernel_size=3, stride=2, norm_name=norm_name, res_block=True)
 
         self.encoder2 = UnetrBasicBlock(spatial_dims=spatial_dims,
-            in_channels = feature_size,
-            out_channels = feature_size,
-            kernel_size = 3, stride=2, norm_name=norm_name, res_block=True)
+                                        in_channels=feature_size,
+                                        out_channels=feature_size,
+                                        kernel_size=3, stride=2, norm_name=norm_name, res_block=True)
 
         self.encoder3 = UnetrBasicBlock(spatial_dims=spatial_dims,
-            in_channels = feature_size,
-            out_channels = 2 * feature_size ,
-            kernel_size = 3, stride=2, norm_name=norm_name, res_block=True)
+                                        in_channels=feature_size,
+                                        out_channels=2 * feature_size,
+                                        kernel_size=3, stride=2, norm_name=norm_name, res_block=True)
 
         self.encoder4 = UnetrBasicBlock(spatial_dims=spatial_dims,
-            in_channels= 2 * feature_size,
-            out_channels = 4 * feature_size,
-            kernel_size = 3, stride=2, norm_name=norm_name, res_block=True)
-    
+                                        in_channels=2 * feature_size,
+                                        out_channels=4 * feature_size,
+                                        kernel_size=3, stride=2, norm_name=norm_name, res_block=True)
+
     def forward(self, x_in, report_in=None):
         # TODO : model forward
         hidden_states_out = []
@@ -116,4 +115,3 @@ class ImageEncoder(nn.Module):
         logger.debug(f"enc3: {hidden_states_out[3].shape}")
 
         return hidden_states_out
-    
