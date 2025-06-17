@@ -2,22 +2,25 @@ import os
 import SimpleITK as SpITK 
 import numpy as np 
 from logger import get_logger 
+import SimpleITK as SpITK 
+import numpy as np 
+from logger import get_logger 
  
 logger = get_logger("data_prepare") 
- 
 
-def read_nii_files(folder_path): 
+def read_nii_files(folder_path, max_samples=None): 
     """
     Read and process NIfTI files from the BraTS dataset.
     This function handles both image files (flair, t1, t2, t1ce) and their corresponding segmentation labels.
     
     Args:
         folder_path (str): Path to the directory containing BraTS dataset files
+        max_samples (int, optional): Maximum number of samples to process. If None, process all available samples.
         
     Returns:
         dict: Dictionary containing processed images and labels
-            - images: numpy array of shape [4, n, 155, 256, 256] (4 modalities, n samples, 155 slices, 256x256 resolution)
-            - labels: numpy array of shape [3, n, 155, 256, 256] (3 segmentation masks, n samples, 155 slices, 256x256 resolution)
+            - images: numpy array of shape [4, n, 155, 240, 240] (4 modalities, n samples, 155 slices, 240x240 resolution)
+            - labels: numpy array of shape [3, n, 155, 240, 240] (3 segmentation masks, n samples, 155 slices, 240x240 resolution)
     """
     dataset = [] 
     # Dictionary to store label file paths, key is base filename, value is label file path
@@ -36,7 +39,13 @@ def read_nii_files(folder_path):
     
     # Second pass: Read image files and associate with labels
     for root, _, files in os.walk(folder_path): 
+        if max_samples is not None and num_samples >= max_samples:  # 如果设置了max_samples且达到限制则停止
+            break
+            
         for file in files: 
+            if max_samples is not None and num_samples >= max_samples:  # 如果设置了max_samples且达到限制则停止
+                break
+                
             # Check if file is one of the four MRI modalities (flair, t1, t2, t1ce)
             if file.endswith(("_flair.nii", "_flair.nii.gz", "_t1.nii", "_t1.nii.gz", 
                             "_t2.nii", "_t2.nii.gz", "_t1ce.nii", "_t1ce.nii.gz")):  
@@ -48,39 +57,40 @@ def read_nii_files(folder_path):
                     continue 
  
                 try: 
-                    num_samples += 1 
-                    print(num_samples) 
-                    # Construct full file path
-                    nii_path = os.path.join(root, file) 
-                    # Read NIfTI image
-                    image_sitk = SpITK.ReadImage(nii_path) 
-                    spacing = image_sitk.GetSpacing() 
-                    spatial_shape = image_sitk.GetSize() 
- 
-                    # Set default values for metadata
-                    series_number = 0 
-                    study_desc = "N/A" 
-                    series_desc = "N/A" 
- 
-                    # Read label file
-                    label_sitk = SpITK.ReadImage(label_path) 
-                    label = SpITK.GetArrayFromImage(label_sitk) 
- 
-                    # Create dictionary with image information
-                    data_dict = { 
-                        'SeriesNumber': series_number, 
-                        'StudyDescription': study_desc, 
-                        'SeriesDescription': series_desc, 
-                        'spacing': spacing, 
-                        'spatial_shape': spatial_shape, 
-                        'space': image_sitk.GetDirection(), 
-                        'label': label, 
-                        'image': SpITK.GetArrayFromImage(image_sitk) 
-                    } 
-                    if base_name not in sample_data: 
-                        sample_data[base_name] = {'images': [], 'label': label} 
-                    sample_data[base_name]['images'].append(data_dict['image']) 
- 
+                    # Initialize sample data if not exists
+                    if base_name not in sample_data:
+                        sample_data[base_name] = {
+                            'images': {'flair': None, 't1': None, 't2': None, 't1ce': None},
+                            'label': None
+                        }
+                        # Read label file only once per sample
+                        label_sitk = SpITK.ReadImage(label_path)
+                        sample_data[base_name]['label'] = SpITK.GetArrayFromImage(label_sitk)
+                    
+                    # Read image file
+                    nii_path = os.path.join(root, file)
+                    image_sitk = SpITK.ReadImage(nii_path)
+                    image = SpITK.GetArrayFromImage(image_sitk)
+                    
+                    # Store image based on modality
+                    if '_flair' in file:
+                        sample_data[base_name]['images']['flair'] = image
+                    elif '_t1.' in file and not '_t1ce' in file:
+                        sample_data[base_name]['images']['t1'] = image
+                    elif '_t2' in file:
+                        sample_data[base_name]['images']['t2'] = image
+                    elif '_t1ce' in file:
+                        sample_data[base_name]['images']['t1ce'] = image
+                    
+                    # Check if we have all modalities for this sample
+                    if all(v is not None for v in sample_data[base_name]['images'].values()):
+                        num_samples += 1
+                        if num_samples % 10 == 0:  # 每处理10个样本打印一次进度
+                            if max_samples is not None:
+                                print(f"Processing sample {num_samples}/{max_samples}")
+                            else:
+                                print(f"Processing sample {num_samples}")
+                        
                 except Exception as e: 
                     logger.warning(f"Error reading NIfTI file: {file}, error: {e}") 
  
@@ -88,19 +98,20 @@ def read_nii_files(folder_path):
     all_images = [] 
     all_labels = []  
     for base_name, data in sample_data.items():  
-        images = data['images'] 
-        label = data['label'] 
-        # Ensure images are in correct order (flair, t1, t2, t1ce)
-        sorted_images = sorted(images, key=lambda x: [ 
-            "_flair.nii" in file, 
-            "_t1.nii" in file, 
-            "_t2.nii" in file, 
-            "_t1ce.nii" in file 
-        ]) 
-        # Stack images to desired shape
-        stacked_images = np.stack(sorted_images, axis=0)  # [1, 155, 256, 256]
+        # Skip incomplete samples
+        if not all(v is not None for v in data['images'].values()):
+            continue
+            
+        # Stack images in correct order (flair, t1, t2, t1ce)
+        images = [
+            data['images']['flair'],
+            data['images']['t1'],
+            data['images']['t2'],
+            data['images']['t1ce']
+        ]
+        stacked_images = np.stack(images, axis=0)  # [4, 155, 240, 240]
         all_images.append(stacked_images)  
-        all_labels.append(label)  
+        all_labels.append(data['label'])  
 
     all_labels = np.stack(all_labels, axis=0) 
 
@@ -110,37 +121,25 @@ def read_nii_files(folder_path):
     # 2: Edema
     # 4: Enhancing tumor
     
-    # Create three binary masks:
-    # 1. Whole Tumor (WT): combines labels 1, 2, and 4
-    mask_WT = all_labels.copy()
-    mask_WT[mask_WT == 1] = 1
-    mask_WT[mask_WT == 2] = 1
-    mask_WT[mask_WT == 4] = 1
-
-    # 2. Tumor Core (TC): combines labels 1 and 4
-    mask_TC = all_labels.copy()
-    mask_TC[mask_TC == 1] = 1
-    mask_TC[mask_TC == 2] = 0
-    mask_TC[mask_TC == 4] = 1
-
-    # 3. Enhancing Tumor (ET): only label 4
-    mask_ET = all_labels.copy()
-    mask_ET[mask_ET == 1] = 0
-    mask_ET[mask_ET == 2] = 0
-    mask_ET[mask_ET == 4] = 1
-
-    # Stack the three masks
-    all_labels = np.stack([mask_WT, mask_TC, mask_ET], axis=0)
+    # Convert to one-hot encoding (4 channels)
+    num_classes = 4
+    one_hot_labels = np.zeros((num_classes, *all_labels.shape))
+    
+    # Set values for each class
+    one_hot_labels[0] = (all_labels == 0).astype(np.float32)  # Background
+    one_hot_labels[1] = (all_labels == 1).astype(np.float32)  # Necrotic and non-enhancing tumor core
+    one_hot_labels[2] = (all_labels == 2).astype(np.float32)  # Edema
+    one_hot_labels[3] = (all_labels == 4).astype(np.float32)  # Enhancing tumor
     
     # Stack all sample images
-    final_images = np.stack(all_images, axis=1)  # [4, n, 155, 256, 256] 
-    logger.info("Datasets sorted successfully") 
-    print(all_labels.shape)
-    print(final_images.shape)
-    return {'images': final_images, 'labels': all_labels} 
- 
- 
-# def find_rtstruct_files(folder_path):  # find RTSTRUCT files 
+    final_images = np.stack(all_images, axis=1)  # [4, n, 155, 240, 240] 
+    logger.info(f"Datasets sorted successfully. Total samples: {num_samples}") 
+    print(f"Labels shape: {one_hot_labels.shape}")
+    print(f"Images shape: {final_images.shape}")
+    return {'images': final_images, 'labels': one_hot_labels} 
+
+
+ # def find_rtstruct_files(folder_path):  # find RTSTRUCT files 
 #     rtstruct_files = [] 
 #     for root, _, files in os.walk(folder_path):  
 #         for file in files: 
@@ -302,6 +301,3 @@ def read_nii_files(folder_path):
 #             dataset.extend(sample_data)  
  
 #     return dataset 
- 
-
- 
