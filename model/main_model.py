@@ -201,16 +201,16 @@ class MainModel(pl.LightningModule):
         return loss
 
     def on_train_epoch_end(self):
-        # Print newline at the end of each epoch
         print()  # This will create a new line after the last batch update
+        torch.cuda.empty_cache()  # 清理显存
 
     def on_validation_epoch_end(self):
-        # Print newline at the end of each validation
         print()  # This will create a new line after the last validation batch update
+        torch.cuda.empty_cache()  # 清理显存
 
     def on_test_epoch_end(self):
-        # Print newline at the end of testing
         print()  # This will create a new line after the last test batch update
+        torch.cuda.empty_cache()  # 清理显存
 
         # Print final evaluation metrics
         avg_loss = self.trainer.callback_metrics['test_loss']
@@ -353,7 +353,7 @@ def train(dataset_path, devices_numbers, save_dir="./checkpoints"):
         max_samples (int, optional): Maximum number of samples to use for training. If None, use all available samples.
     """
     # 使用MRDataModule进行数据加载和分割
-    data_module = MRDataModule(data_dir=dataset_path, batch_size=8, train_val_split=0.8, num_workers=2)
+    data_module = MRDataModule(data_dir=dataset_path, batch_size=4, train_val_split=0.8, num_workers=2)
     data_module.setup()
     logger.info(f"Collected {len(data_module.train_dataset) + len(data_module.val_dataset)} samples.")
 
@@ -364,11 +364,11 @@ def train(dataset_path, devices_numbers, save_dir="./checkpoints"):
         in_channels=4,  # Changed to 4 channels
 
         # Training parameters
-        batch_size=8,  # Reduced batch size for better gradient updates
-        max_epochs=4,  # Increased epochs
+        batch_size=32,  # Reduced batch size for better gradient updates
+        max_epochs=10,  # Increased epochs
         learning_rate=5e-4,  # Slightly lower learning rate
-        weight_decay=1e-4,
-        min_lr=1e-6,
+        weight_decay=1e-5,
+        min_lr=5e-7,
 
         # Early stopping parameters
         early_stopping_patience=25,  # Increased patience
@@ -376,7 +376,7 @@ def train(dataset_path, devices_numbers, save_dir="./checkpoints"):
 
         # Data parameters
         train_val_split=0.8,
-        num_workers=2
+        num_workers=8
     )
     model = MainModel(config)
 
@@ -392,7 +392,7 @@ def train(dataset_path, devices_numbers, save_dir="./checkpoints"):
         max_epochs=model.config.max_epochs,
         accelerator='gpu',
         devices=devices_numbers,
-        precision="32",
+        precision="16-mixed",  # 混合精度
         callbacks=[
             pl.callbacks.EarlyStopping(
                 monitor='val_loss',  # Monitor validation loss

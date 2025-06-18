@@ -1,8 +1,6 @@
 import os
-
 import SimpleITK as SpITK
 import numpy as np
-
 from logger import get_logger
 
 logger = get_logger("data_prepare")
