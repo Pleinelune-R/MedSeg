@@ -8,12 +8,12 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.utilities.types import OptimizerLRScheduler
 from torch.utils.data import DataLoader
 
-from data_prepare.data_iter import MRDataset
-from data_prepare.load_file import read_nii_files
+from data_prepare.load_file import read_nii_files, collect_sample_paths
 from logger import get_logger
 from .image_deocder import ImageDecoder
 from .image_encoder import ImageEncoder
 from .loss import MultiClassBCEDiceLoss
+from data_prepare.data_module import MRDataModule
 
 logger = get_logger("model")
 
@@ -147,7 +147,7 @@ class MainModel(pl.LightningModule):
         return x  # Return [B, 4, 128, 256, 256] - keep channel dimension for multi-class
 
     def common_step(self, x, y):
-        y_hat = self(x)  # [B, 4, H, W, D]
+        y_hat = self(x)
         mask, ce_loss, dice_loss, loss = self.criterion(y_hat, y)
         return mask, loss, dice_loss, ce_loss
 
@@ -352,13 +352,11 @@ def train(dataset_path, devices_numbers, save_dir="./checkpoints"):
         save_dir (str): Directory to save model checkpoints and logs
         max_samples (int, optional): Maximum number of samples to use for training. If None, use all available samples.
     """
-    dataset = read_nii_files(dataset_path, max_samples=500) 
-    images = dataset['images']  # [4, n, 155, 240, 240] 
-    labels = dataset['labels']  # [4, n, 155, 240, 240]
-    logger.info(f"Datasets loaded successfully with {images.shape[1]} samples")
+    # 使用MRDataModule进行数据加载和分割
+    data_module = MRDataModule(data_dir=dataset_path, batch_size=8, train_val_split=0.8, num_workers=2)
+    data_module.setup()
+    logger.info(f"Collected {len(data_module.train_dataset) + len(data_module.val_dataset)} samples.")
 
-    # 移除转置操作，保持原始维度
-    medical_dataset = MRDataset(images, labels)
     config = ModelConfig(
         # Image parameters
         input_size=(128, 256, 256),
@@ -367,7 +365,7 @@ def train(dataset_path, devices_numbers, save_dir="./checkpoints"):
 
         # Training parameters
         batch_size=8,  # Reduced batch size for better gradient updates
-        max_epochs=50,  # Increased epochs
+        max_epochs=4,  # Increased epochs
         learning_rate=5e-4,  # Slightly lower learning rate
         weight_decay=1e-4,
         min_lr=1e-6,
@@ -381,19 +379,12 @@ def train(dataset_path, devices_numbers, save_dir="./checkpoints"):
         num_workers=2
     )
     model = MainModel(config)
-    train_size = int(model.config.train_val_split * len(medical_dataset))
-    test_size = len(medical_dataset) - train_size
-    train_dataset, test_dataset = torch.utils.data.random_split(medical_dataset, [train_size, test_size],
-                                                                generator=torch.Generator().manual_seed(0))
-    train_loader = DataLoader(train_dataset, batch_size=model.config.batch_size, shuffle=True,
-                              num_workers=model.config.num_workers)
-    test_loader = DataLoader(test_dataset, batch_size=model.config.batch_size, shuffle=False,
-                             num_workers=model.config.num_workers)
-    # Check data dimensions for debugging
-    for batch in train_loader:
+
+    # 检查数据维度
+    for batch in data_module.train_dataloader():
         x, y = batch
         print(f"Input data shape: {x.shape}")
-        print(f"Label data shape: {y.shape}")  # Ensure label is 3-channel
+        print(f"Label data shape: {y.shape}")
         break
 
     logger.info("Start training")
@@ -422,6 +413,6 @@ def train(dataset_path, devices_numbers, save_dir="./checkpoints"):
         logger=TensorBoardLogger(save_dir, name='test'),
         enable_progress_bar=False  # Disable default progress bar
     )
-    trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=test_loader)
-    trainer.test(model, dataloaders=test_loader)
+    trainer.fit(model, train_dataloaders=data_module.train_dataloader(), val_dataloaders=data_module.val_dataloader())
+    trainer.test(model, dataloaders=data_module.test_dataloader())
     return trainer
