@@ -25,10 +25,11 @@ print(f"Found {len(samples)} samples")
 if len(samples) == 0:
     raise RuntimeError("No samples found! Please check your data directory and file names.")
 
-# 先处理第一个样本，确定shape
 first_image, first_label = MRDataModule.process_mr_sample(samples[0], resize)
-image_shape = first_image.shape
-label_shape = first_label.shape
+# image_shape = first_image.shape
+# label_shape = first_label.shape
+image_shape = (4, 128, 256, 256)
+label_shape = (4, 128, 256, 256)
 
 with h5py.File(save_path, "w") as f:
     images_ds = f.create_dataset("images", shape=(len(samples), *image_shape), dtype=np.float32)
