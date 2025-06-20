@@ -31,18 +31,22 @@ class ModelConfig:
 
                  # Training parameters
                  batch_size=16,
-                 max_epochs=70,
-                 learning_rate=1e-3,
-                 weight_decay=1e-4,
-                 min_lr=1e-4,
+                 max_epochs=30,
+                 learning_rate=5e-4,
+                 weight_decay=1e-5,
+                 min_lr=5e-7,
 
                  # Early stopping parameters
-                 early_stopping_patience=30,
-                 early_stopping_min_delta=0.001,
+                 early_stopping_patience=25,
+                 early_stopping_min_delta=0.0005,
 
                  # Data parameters
                  train_val_split=0.8,
-                 num_workers=2):
+                 num_workers=8,
+                 dataset_path=None,
+                 devices_numbers=None,
+                 strategy=None  # 新增
+                 ):
         # Image parameters
         self.input_size = input_size
         self.network_size = network_size
@@ -62,6 +66,9 @@ class ModelConfig:
         # Data parameters
         self.train_val_split = train_val_split
         self.num_workers = num_workers
+        self.dataset_path = dataset_path
+        self.devices_numbers = devices_numbers
+        self.strategy = strategy
 
 
 class CustomLoggingCallback(pl.Callback):
@@ -342,42 +349,18 @@ class MainModel(pl.LightningModule):
 
 
 # Training function: loads data, splits, and runs training/testing
-def train(dataset_path, devices_numbers, save_dir="./checkpoints"):
-    """
-    Train the model on the BraTS dataset.
-    
-    Args:
-        dataset_path
-        devices_numbers (int or List[int]): Number of GPU devices to use
-        save_dir (str): Directory to save model checkpoints and logs
-        max_samples (int, optional): Maximum number of samples to use for training. If None, use all available samples.
-    """
+def train(config, save_dir="./checkpoints"):
+    devices_numbers = config.devices_numbers
     # 使用MRDataModule进行数据加载和分割
-    data_module = MRDataModule(data_dir=dataset_path, batch_size=4, train_val_split=0.8, num_workers=2)
+    data_module = MRDataModule(
+        data_dir=config.dataset_path,
+        batch_size=config.batch_size,
+        train_val_split=config.train_val_split,
+        num_workers=config.num_workers
+    )
     data_module.setup()
     logger.info(f"Collected {len(data_module.train_dataset) + len(data_module.val_dataset)} samples.")
 
-    config = ModelConfig(
-        # Image parameters
-        input_size=(128, 256, 256),
-        network_size=(64, 128, 128),
-        in_channels=4,  # Changed to 4 channels
-
-        # Training parameters
-        batch_size=32,  # Reduced batch size for better gradient updates
-        max_epochs=10,  # Increased epochs
-        learning_rate=5e-4,  # Slightly lower learning rate
-        weight_decay=1e-5,
-        min_lr=5e-7,
-
-        # Early stopping parameters
-        early_stopping_patience=25,  # Increased patience
-        early_stopping_min_delta=0.0005,  # Smaller delta
-
-        # Data parameters
-        train_val_split=0.8,
-        num_workers=8
-    )
     model = MainModel(config)
 
     # 检查数据维度
@@ -392,7 +375,7 @@ def train(dataset_path, devices_numbers, save_dir="./checkpoints"):
         max_epochs=model.config.max_epochs,
         accelerator='gpu',
         devices=devices_numbers,
-        precision="16-mixed",  # 混合精度
+        precision="32",  # 混合精度
         callbacks=[
             pl.callbacks.EarlyStopping(
                 monitor='val_loss',  # Monitor validation loss
@@ -411,7 +394,8 @@ def train(dataset_path, devices_numbers, save_dir="./checkpoints"):
         ],
         log_every_n_steps=1,
         logger=TensorBoardLogger(save_dir, name='test'),
-        enable_progress_bar=False  # Disable default progress bar
+        enable_progress_bar=True,  # Disable default progress bar
+        strategy=model.config.strategy  # Added strategy
     )
     trainer.fit(model, train_dataloaders=data_module.train_dataloader(), val_dataloaders=data_module.val_dataloader())
     trainer.test(model, dataloaders=data_module.test_dataloader())

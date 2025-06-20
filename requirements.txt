@@ -3,7 +3,10 @@ matplotlib
 monai
 numpy
 pytorch_lightning
+lightning
 setuptools
 simpleitk
 torch
 torchvision
+tensorboard
+h5py

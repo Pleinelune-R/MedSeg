@@ -7,40 +7,32 @@ logger = get_logger("data_prepare")
 
 def collect_sample_paths(folder_path, max_samples=None):
     """
-    Collects file paths for each sample's four modalities and label.
-    Returns a list of dicts: [{'flair': ..., 't1': ..., 't2': ..., 't1ce': ..., 'label': ...}, ...]
+    返回 [{'flair': ..., 't1': ..., 't2': ..., 't1ce': ..., 'label': ...}, ...]
     """
-    label_files = {}
-    for root, _, files in os.walk(folder_path):
-        for file in files:
-            if file.endswith("_seg.nii") or file.endswith("_seg.nii.gz"):
-                base_name = file.rsplit("_", 1)[0]
-                label_files[base_name] = os.path.join(root, file)
-
     samples = []
-    seen = set()
-    for root, _, files in os.walk(folder_path):
-        for file in files:
-            if file.endswith(("_flair.nii", "_flair.nii.gz")):
-                base_name = file.rsplit("_", 1)[0]
-                if base_name in seen:
-                    continue
-                flair = os.path.join(root, f"{base_name}_flair.nii.gz") if os.path.exists(os.path.join(root, f"{base_name}_flair.nii.gz")) else os.path.join(root, f"{base_name}_flair.nii")
-                t1 = os.path.join(root, f"{base_name}_t1.nii.gz") if os.path.exists(os.path.join(root, f"{base_name}_t1.nii.gz")) else os.path.join(root, f"{base_name}_t1.nii")
-                t2 = os.path.join(root, f"{base_name}_t2.nii.gz") if os.path.exists(os.path.join(root, f"{base_name}_t2.nii.gz")) else os.path.join(root, f"{base_name}_t2.nii")
-                t1ce = os.path.join(root, f"{base_name}_t1ce.nii.gz") if os.path.exists(os.path.join(root, f"{base_name}_t1ce.nii.gz")) else os.path.join(root, f"{base_name}_t1ce.nii")
-                label = label_files.get(base_name)
-                if all(os.path.exists(p) for p in [flair, t1, t2, t1ce]) and label:
-                    samples.append({
-                        'flair': flair,
-                        't1': t1,
-                        't2': t2,
-                        't1ce': t1ce,
-                        'label': label
-                    })
-                    seen.add(base_name)
-                    if max_samples is not None and len(samples) >= max_samples:
-                        return samples
+    for case in sorted(os.listdir(folder_path)):
+        case_dir = os.path.join(folder_path, case)
+        if not os.path.isdir(case_dir):
+            continue
+        flair = os.path.join(case_dir, "flair.nii.gz")
+        t1 = os.path.join(case_dir, "t1.nii.gz")
+        t2 = os.path.join(case_dir, "t2.nii.gz")
+        t1ce = os.path.join(case_dir, "t1ce.nii.gz")
+        # 支持label.nii.gz或label.nii
+        label = os.path.join(case_dir, "label.nii.gz")
+        if not os.path.exists(label):
+            label = os.path.join(case_dir, "label.nii")
+        if all(os.path.exists(p) for p in [flair, t1, t2, t1ce, label]):
+            samples.append({
+                'flair': flair,
+                't1': t1,
+                't2': t2,
+                't1ce': t1ce,
+                'label': label
+            })
+            if max_samples is not None and len(samples) >= max_samples:
+                return samples
+    logger.info(f"collect finish, total samples: {len(samples)}")
     return samples
 
 

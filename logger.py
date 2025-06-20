@@ -86,57 +86,8 @@ class LoggerManager:
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
 
-        # configure root logger
-        self._configure_root_logger()
-
         self.initialized = True
         return self
-
-    def _configure_root_logger(self):
-        """configure root logger"""
-        # get root logger
-        root_logger = logging.getLogger()
-        root_logger.setLevel(self.log_level)
-
-        # clear logger handlers
-        if root_logger.handlers:
-            for handler in root_logger.handlers:
-                root_logger.removeHandler(handler)
-
-        # add console handler
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(self.log_level)
-        formatter = logging.Formatter(
-            '%(levelname)s: %(asctime)s %(lineno)d  %(name)s - %(message)s'
-        )
-        console_formatter = ColorFormatter(  # console Formatter for colors
-            '%(levelname)s:     %(asctime)s %(lineno)d %(name)s - %(message)s',
-            datefmt='%y-%m-%d %H:%M'
-        )
-        console_handler.setFormatter(console_formatter)
-        root_logger.addHandler(console_handler)
-
-        # add file handler
-        file_path = os.path.join(self.log_dir, "app.log")
-        file_handler = RotatingFileHandler(
-            file_path,
-            maxBytes=self.max_bytes,
-            backupCount=self.backup_count
-        )
-        file_handler.setLevel(self.log_level)
-        file_handler.setFormatter(formatter)
-        root_logger.addHandler(file_handler)
-
-        # add error file logger
-        error_file_path = os.path.join(self.log_dir, "error.log")
-        error_file_handler = RotatingFileHandler(
-            error_file_path,
-            maxBytes=self.max_bytes,
-            backupCount=self.backup_count
-        )
-        error_file_handler.setLevel(logging.ERROR)
-        error_file_handler.setFormatter(formatter)
-        root_logger.addHandler(error_file_handler)
 
     def get_logger(self, name) -> logging.Logger:
         """get or create specify logger"""
@@ -146,6 +97,30 @@ class LoggerManager:
         if name not in self.loggers:
             logger = logging.getLogger(name)
             logger.setLevel(self.log_level)
+            # 只为自定义logger添加handler，不影响root logger
+            if not logger.handlers:
+                # 控制台 handler
+                console_handler = logging.StreamHandler(sys.stdout)
+                console_handler.setLevel(self.log_level)
+                console_formatter = ColorFormatter(
+                    '%(levelname)s:     %(asctime)s %(lineno)d %(name)s - %(message)s',
+                    datefmt='%y-%m-%d %H:%M'
+                )
+                console_handler.setFormatter(console_formatter)
+                logger.addHandler(console_handler)
+                # 文件 handler
+                file_path = os.path.join(self.log_dir, f"{name}.log")
+                file_handler = RotatingFileHandler(
+                    file_path,
+                    maxBytes=self.max_bytes,
+                    backupCount=self.backup_count
+                )
+                file_handler.setLevel(self.log_level)
+                formatter = logging.Formatter(
+                    '%(levelname)s: %(asctime)s %(lineno)d  %(name)s - %(message)s'
+                )
+                file_handler.setFormatter(formatter)
+                logger.addHandler(file_handler)
             self.loggers[name] = logger
 
         return self.loggers[name]
@@ -158,20 +133,11 @@ class LoggerManager:
         # update logger level
         self.log_level = level
 
-        # update root logger level
-        root_logger = logging.getLogger()
-        root_logger.setLevel(level)
-
-        # update all handler
-        for handler in root_logger.handlers:
-            # error keep level
-            if isinstance(handler, logging.FileHandler) and os.path.basename(handler.baseFilename) == "error.log":
-                continue
-            handler.setLevel(level)
-
         # update all logger
         for logger in self.loggers.values():
             logger.setLevel(level)
+            for handler in logger.handlers:
+                handler.setLevel(level)
 
 
 # 创建日志管理器单例实例
