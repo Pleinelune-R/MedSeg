@@ -7,7 +7,8 @@ import logging
 logger = logging.getLogger(__name__)
  
 from monai.networks.blocks.dynunet_block  import UnetBasicBlock, UnetResBlock, get_conv_layer 
- 
+from .vit_moe import ViT_Decoder
+
 # maybe can use pl 
  
 class ContextUnetrUpBlock(nn.Module): 
@@ -77,65 +78,36 @@ class ContextUnetrUpBlock(nn.Module):
         out = self.conv_block(out)  
         return out 
 
-class ImageDecoder(nn.Module):    
-    def __init__( 
-        self, 
-        feature_size: int = 24, 
-        norm_name: tuple | str = "instance", 
-        spatial_dims: int = 3, 
-        args=None, 
-        context=False  
-    ) -> None: 
-        super().__init__() 
-        self.context = context
-        
-        # Calculate the actual input channels for each decoder block
-        add_ch = args.n_prompts if args.align_score else 0 if self.context else 0
-        
-        # decoder 
- 
-        self.decoder3 = ContextUnetrUpBlock(
-            spatial_dims=spatial_dims, 
-            in_channels=96,   # Previous output
-            out_channels=48,  # hidden_states_out[2]
-            kernel_size=3,
-            upsample_kernel_size=2,
-            norm_name=norm_name,
-            add_channels=0
-        ) 
-        
-        self.decoder2 = ContextUnetrUpBlock(
-            spatial_dims=spatial_dims, 
-            in_channels=48,   # Previous output
-            out_channels=24,  # hidden_states_out[1]
-            kernel_size=3,
-            upsample_kernel_size=2,
-            norm_name=norm_name,
-            add_channels=0
-        ) 
- 
-        self.decoder1 = ContextUnetrUpBlock(
-            spatial_dims=spatial_dims, 
-            in_channels=24,   # Previous output
-            out_channels=24,  # Final feature size
-            kernel_size=3,
-            upsample_kernel_size=2,
-            norm_name=norm_name,
-            add_channels=0
-        ) 
- 
-        self.out = nn.Conv3d(24, 4, kernel_size=1) 
+class ImageDecoder(nn.Module):
+    def __init__(
+        self,
+        in_channels: int = 384,
+        embed_dim: int = 96,
+        patch_size: int = 16,
+        img_size=(64, 128, 128),
+        depth: int = 4,
+        num_heads: int = 8,
+        ffn_dim: int = 384,
+        out_channels: int = 4,
+        dropout: float = 0.1,
+        **kwargs
+    ):
+        super().__init__()
+        self.vit_decoder = ViT_Decoder(
+            in_channels=in_channels,
+            embed_dim=embed_dim,
+            patch_size=patch_size,
+            img_size=img_size,
+            depth=depth,
+            num_heads=num_heads,
+            ffn_dim=ffn_dim,
+            out_channels=out_channels,
+            dropout=dropout
+        )
 
-
-    def forward(self, hidden_states_out): 
-        # visual decoder 
-        dec1 = self.decoder3(hidden_states_out[3], hidden_states_out[2]) 
-        dec0 = self.decoder2(dec1, hidden_states_out[1]) 
-        out = self.decoder1(dec0, hidden_states_out[0]) 
-        out = torch.nn.functional.interpolate(out, size=(out.shape[2]*2, out.shape[3]*2, out.shape[4]*2), mode='trilinear', align_corners=True)
-        logger.debug(f"Decoder hidden states shapes:")
-        logger.debug(f"dec1: {dec1.shape}")
-        logger.debug(f"dec0: {dec0.shape}")
-        logger.debug(f"out: {out.shape}")
-        logits = self.out(out)  
-        return logits 
+    def forward(self, x):
+        # x: (B, 4, C, d, h, w)
+        B, M, C, d, h, w = x.shape
+        x = x.reshape(B, M*C, d, h, w)  # (B, 4*C, d, h, w)
+        out = self.vit_decoder(x)  # (B, 4, D, H, W)
+        return out 

@@ -45,7 +45,8 @@ class ModelConfig:
                  num_workers=8,
                  dataset_path=None,
                  devices_numbers=None,
-                 strategy=None  # 新增
+                 strategy="auto", 
+                 profiler="simple"
                  ):
         # Image parameters
         self.input_size = input_size
@@ -69,6 +70,7 @@ class ModelConfig:
         self.dataset_path = dataset_path
         self.devices_numbers = devices_numbers
         self.strategy = strategy
+        self.profiler = profiler
 
 
 class CustomLoggingCallback(pl.Callback):
@@ -122,10 +124,25 @@ class MainModel(pl.LightningModule):
         self.image_encoder = ImageEncoder(
             img_size=self.network_size,
             in_channels=self.in_channels,
-            spatial_dims=3
+            embed_dim=96,
+            patch_size=16,
+            depth=6,
+            num_heads=8,
+            ffn_dim=384,
+            num_modalities=4,
+            dropout=0.1
         )
-        args = type('Args', (), {'align_score': False, 'n_prompts': 0})
-        self.image_decoder = ImageDecoder(args=args)
+        self.image_decoder = ImageDecoder(
+            in_channels=384,
+            embed_dim=96,
+            patch_size=1,
+            img_size=(4, 8, 8),
+            depth=4,
+            num_heads=8,
+            ffn_dim=384,
+            out_channels=4,
+            dropout=0.1
+        )
 
         # Use combined loss (Dice + BCE)
         self.criterion = MultiClassBCEDiceLoss(
@@ -160,28 +177,68 @@ class MainModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y = batch
+        # 数据内容和shape调试
+        if batch_idx == 0:
+            print("[Train] Input x shape:", x.shape, "min:", x.min().item(), "max:", x.max().item())
+            print("[Train] Label y shape:", y.shape, "unique values:", torch.unique(y))
+            # 可视化一组输入和标签
+            try:
+                import matplotlib.pyplot as plt
+                img = x[0, 0].detach().cpu().numpy()
+                label = y[0].detach().cpu().numpy()
+                label_single = label.argmax(0)
+                plt.subplot(1,2,1); plt.imshow(img[img.shape[0]//2], cmap='gray'); plt.title('Input (mid slice)')
+                plt.subplot(1,2,2); plt.imshow(label_single[label_single.shape[0]//2]); plt.title('Label (mid slice)')
+                plt.show()
+            except Exception as e:
+                print("[Train] Visualization error:", e)
         mask, loss, dice_loss, ce_loss = self.common_step(x, y)
+        # 模型输出和损失调试
+        if batch_idx == 0:
+            print("[Train] Model output shape:", mask.shape)
+            print("[Train] Loss:", loss.item(), "Dice Loss:", dice_loss.item(), "CE Loss:", ce_loss.item())
+            print("[Train] Pred mask unique:", torch.unique(mask))
         # Log training loss using print for progress updates
         if batch_idx % 10 == 0:  # Log every 10 batches to avoid too frequent logging
             print(
                 f"\rEpoch {self.current_epoch}, Batch {batch_idx}, Train Loss: {loss.item():.4f}, Dice Loss: {dice_loss.item():.4f}, CE Loss: {ce_loss.item():.4f}",
                 end="")
-        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
-        self.log('train_dice_loss', dice_loss, on_step=True, on_epoch=True)
-        self.log('train_ce_loss', ce_loss, on_step=True, on_epoch=True)
+        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log('train_dice_loss', dice_loss, on_step=True, on_epoch=True, sync_dist=True)
+        self.log('train_ce_loss', ce_loss, on_step=True, on_epoch=True, sync_dist=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
-        _, loss, dice_loss, ce_loss = self.common_step(x, y)
+        # 数据内容和shape调试
+        if batch_idx == 0:
+            print("[Val] Input x shape:", x.shape, "min:", x.min().item(), "max:", x.max().item())
+            print("[Val] Label y shape:", y.shape, "unique values:", torch.unique(y))
+            # 可视化一组输入和标签
+            try:
+                import matplotlib.pyplot as plt
+                img = x[0, 0].detach().cpu().numpy()
+                label = y[0].detach().cpu().numpy()
+                label_single = label.argmax(0)
+                plt.subplot(1,2,1); plt.imshow(img[img.shape[0]//2], cmap='gray'); plt.title('Input (mid slice)')
+                plt.subplot(1,2,2); plt.imshow(label_single[label_single.shape[0]//2]); plt.title('Label (mid slice)')
+                plt.show()
+            except Exception as e:
+                print("[Val] Visualization error:", e)
+        mask, loss, dice_loss, ce_loss = self.common_step(x, y)
+        # 模型输出和损失调试
+        if batch_idx == 0:
+            print("[Val] Model output shape:", mask.shape)
+            print("[Val] Loss:", loss.item(), "Dice Loss:", dice_loss.item(), "CE Loss:", ce_loss.item())
+            print("[Val] Pred mask unique:", torch.unique(mask))
         # Log validation loss using print for progress updates
         if batch_idx % 10 == 0:  # Log every 10 batches
             print(
                 f"\rEpoch {self.current_epoch}, Batch {batch_idx}, Val Loss: {loss.item():.4f}, Dice Loss: {dice_loss.item():.4f}, CE Loss: {ce_loss.item():.4f}",
                 end="")
-        self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
-        self.log('val_dice_loss', dice_loss, on_step=True, on_epoch=True)
-        self.log('val_ce_loss', ce_loss, on_step=True, on_epoch=True)
+        self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log('val_dice_loss', dice_loss, on_step=True, on_epoch=True, sync_dist=True)
+        self.log('val_ce_loss', ce_loss, on_step=True, on_epoch=True, sync_dist=True)
         return loss
 
     def test_step(self, batch, batch_idx):
@@ -192,9 +249,9 @@ class MainModel(pl.LightningModule):
             print(
                 f"\rTest Batch {batch_idx}, Test Loss: {loss.item():.4f}, Dice Loss: {dice_loss.item():.4f}, CE Loss: {ce_loss.item():.4f}",
                 end="")
-        self.log('test_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
-        self.log('test_dice_loss', dice_loss, on_step=True, on_epoch=True)
-        self.log('test_ce_loss', ce_loss, on_step=True, on_epoch=True)
+        self.log('test_loss', loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log('test_dice_loss', dice_loss, on_step=True, on_epoch=True, sync_dist=True)
+        self.log('test_ce_loss', ce_loss, on_step=True, on_epoch=True, sync_dist=True)
 
         # Store data for visualization
         self.test_images.extend(x.cpu().numpy())
@@ -214,6 +271,7 @@ class MainModel(pl.LightningModule):
     def on_validation_epoch_end(self):
         print()  # This will create a new line after the last validation batch update
         torch.cuda.empty_cache()  # 清理显存
+
 
     def on_test_epoch_end(self):
         print()  # This will create a new line after the last test batch update
@@ -256,7 +314,7 @@ class MainModel(pl.LightningModule):
             pred_mask = self.test_pred_masks[i]  # [4, 155, 240, 240] - 4 one-hot encoded masks
 
             # Select the middle slice and use FLAIR modality for visualization
-            middle_slice = image.shape[1] // 2  # 155 // 2
+            middle_slice = image.shape[1] // 2 + 1 # 155 // 2
             image_slice = image[0, middle_slice]  # Use FLAIR modality (first channel)
 
             # Convert one-hot encoded masks to single channel with proper labels
@@ -345,8 +403,6 @@ class MainModel(pl.LightningModule):
             }
         }
 
-        # TODO: update parameters
-
 
 # Training function: loads data, splits, and runs training/testing
 def train(config, save_dir="./checkpoints"):
@@ -372,15 +428,16 @@ def train(config, save_dir="./checkpoints"):
 
     logger.info("Start training")
     trainer = pl.Trainer(
-        max_epochs=model.config.max_epochs,
+        max_epochs=config.max_epochs,
         accelerator='gpu',
         devices=devices_numbers,
         precision="32",  # 混合精度
+        profiler=config.profiler,
         callbacks=[
             pl.callbacks.EarlyStopping(
                 monitor='val_loss',  # Monitor validation loss
-                patience=model.config.early_stopping_patience,
-                min_delta=model.config.early_stopping_min_delta,
+                patience=config.early_stopping_patience,
+                min_delta=config.early_stopping_min_delta,
                 mode='min'
             ),
             pl.callbacks.ModelCheckpoint(
