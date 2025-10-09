@@ -15,7 +15,7 @@ from logger import get_logger
 from model.mae_encoder import MAEEncoder
 from model.mae_decoder import MAEDecoder
 from model.mae_loss import MAELossWithVisualization
-from data.mae_dataset import MedicalMAEDataset
+from datasets.mae_dataset import MedicalMAEDataset
 
 logger = get_logger("mae_pretrain")
 

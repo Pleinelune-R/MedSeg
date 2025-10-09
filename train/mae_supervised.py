@@ -312,10 +312,10 @@ def train_mae_supervised(config, save_dir="./checkpoints_supervised"):
         config: ModelConfig with training parameters
         save_dir: Directory to save checkpoints
     """
-    # Start supervised training
+    logger.info("=== Starting MAE Supervised Training ===")
     
     # Import here to avoid circular dependency
-    from data.mae_dataset import MedicalSegmentationDataset
+    from datasets.mae_dataset import MedicalSegmentationDataset
     
     # Create dataset
     dataset = MedicalSegmentationDataset(
