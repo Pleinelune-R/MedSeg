@@ -1,31 +1,45 @@
 # MEDSEG
-## 项目简介：
-MedSeg是一个用于医学影像（MRI、CT）分割任务的项目。
-## 项目结构：
+
+## Overview
+MedSeg is a project for medical image pretraining (MAE) and segmentation on MRI/CT.
+
+## Project Structure
 ```plaintext
 MedSeg/
-├── setup.py 
-├── main.py
-├── data/
-└── data_prepare/
-    ├── __init__.py
-    ├── load_file.py 
-    └── logger.py 
+├── main.py                 # Entry: choose pretrain or supervised training
+├── model/                  # Core model components (encoder/decoder/loss/embed)
+│   ├── mae_encoder.py
+│   ├── mae_decoder.py
+│   ├── mae_loss.py
+│   └── pos_embed.py
+├── data/                   # Datasets
+│   └── mae_dataset.py
+├── train/                  # Training scripts
+│   ├── mae_pretrain.py
+│   └── mae_supervised.py
+├── legacy/                 # Legacy utilities (optional/unused in main flow)
+└── requirements.txt
 ```
-## 安装步骤：
-``` git clone git@github.com:Pleinelune-R/MedSeg.git ```  
-``` cd MedSeg ```  
-## 使用方法：
-项目使用了 setuptools 进行包管理，你可以通过``` from 子包名  import 模块名 ```来导入模块，例如：  
-``` from data_prepare.load_file  import load_dicom_series ```  
-main.py：修改folder_path并运行程序。注意，数据存放的文件夹名应为data。  
-group_dicoms_by_series：按系列号和实例号进行排序DICOM文件，记录每个系列的切片数量。  
-analyze_conversion：分析数据转换过程中的精度损失。  
-load_images_series：加载 DICOM 系列数据，并将其存储在一个列表中。  
-get_image_data：根据指定的系列号和实例号，获取对应的图像数据。  
-plot_single_image：可视化指定的图像数据。  
-## 注意事项：
-请确保你的数据文件夹中包含 DICOM 格式的文件，并且路径为data/。  
-举例：data/Se0001/xxx.dicom
-一个文件夹内可以存放多个RTStruct文件，但要保证对应序列的DICOM也存在同一文件夹下。
-输出的nii.gz文件会存放在data/output/mask_患者姓名_序列号.nii.gz中。
+
+## Installation
+```bash
+git clone <repo-url>
+cd MedSeg
+python -m venv .venv && source .venv/bin/activate  # optional
+pip install -r requirements.txt
+```
+
+## Quick Start
+- Prepare dataset directory with HDF5 files under your path.
+- Launch from the entry script and select mode:
+```bash
+python main.py
+# Choose: 1) MAE unsupervised pretraining, or 2) MAE supervised segmentation
+```
+
+Main entry uses:
+- Pretraining: `from train.mae_pretrain import pretrain_mae`
+- Supervised: `from train.mae_supervised import train_mae_supervised`
+
+## Notes
+- Ensure your data folder contains HDF5 files; each file typically holds up to 4 modalities and multiple slices.
