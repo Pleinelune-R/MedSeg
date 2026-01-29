@@ -1,298 +1,142 @@
 """
-MAE-based Supervised Segmentation
-Uses MAE encoder/decoder architecture for supervised segmentation tasks
+3D MAE Pretraining Module for Medical Volumes
+Supports 3D volumetric data (D×H×W)
 """
 import os
 import torch
-import torch.nn as nn
-import pytorch_lightning as pl
 import matplotlib.pyplot as plt
-import numpy as np
+import pytorch_lightning as pl
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor, EarlyStopping
+from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 
 from logger import get_logger
-from model.mae_encoder import MAEEncoder
+from model.config import ModelConfig
+from model.mae_encoder import MAEEncoder3D
 from model.mae_decoder import MAEDecoder
+from model.mae_loss import MAELossWithVisualization
+from datasets.mae_dataset import MedicalMAEDataset
 
-logger = get_logger("mae_supervised")
+logger = get_logger("mae_pretrain")
 
 
-class MAESegmentationHead(nn.Module):
-    """
-    Segmentation head for MAE decoder output
-    Converts decoder output to segmentation masks
-    """
-    def __init__(self, in_channels, num_classes=4, img_size=256):
+class ValidationVisualizationCallback(pl.Callback):
+    def __init__(self, save_dir):
         super().__init__()
-        self.num_classes = num_classes
-        self.img_size = img_size
-        
-        # Simple conv layers to convert to segmentation
-        self.conv1 = nn.Conv2d(in_channels, 256, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(256)
-        self.conv2 = nn.Conv2d(256, 128, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(128)
-        self.conv3 = nn.Conv2d(128, num_classes, kernel_size=1)
-        
-    def forward(self, x):
-        # x: (B, C, H, W) from decoder
-        x = torch.relu(self.bn1(self.conv1(x)))
-        x = torch.relu(self.bn2(self.conv2(x)))
-        x = self.conv3(x)
-        
-        # Upsample to target size if needed
-        if x.shape[-2:] != (self.img_size, self.img_size):
-            x = torch.nn.functional.interpolate(
-                x, size=(self.img_size, self.img_size), 
-                mode='bilinear', align_corners=True
-            )
-        
-        return x
+        self.save_dir = save_dir
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        if (trainer.current_epoch + 1) % 5 == 0 or trainer.current_epoch == 0:
+            val_loader = trainer.val_dataloaders
+            device = pl_module.device
+            
+            # Create a directory for the current epoch
+            epoch_save_dir = os.path.join(self.save_dir, f"epoch_{trainer.current_epoch + 1}")
+            os.makedirs(epoch_save_dir, exist_ok=True)
+            
+            try:
+                create_reconstruction_grid(pl_module, val_loader, device, num_samples=4, save_dir=epoch_save_dir)
+            except Exception as e:
+                logger.error(f"Error generating epoch visualization: {e}")
 
 
-class DiceLoss(nn.Module):
-    """Dice Loss for segmentation"""
-    def __init__(self, smooth=1.0):
-        super().__init__()
-        self.smooth = smooth
-    
-    def forward(self, pred, target):
-        # pred: (B, C, H, W) logits
-        # target: (B, C, H, W) one-hot
-        pred = torch.softmax(pred, dim=1)
-        
-        intersection = (pred * target).sum(dim=(2, 3))
-        union = pred.sum(dim=(2, 3)) + target.sum(dim=(2, 3))
-        
-        dice = (2.0 * intersection + self.smooth) / (union + self.smooth)
-        return 1.0 - dice.mean()
-
-
-class MAESegmentationModel(pl.LightningModule):
-    """
-    MAE-based Segmentation Model
-    Uses MAE encoder/decoder for supervised segmentation
-    """
-    def __init__(
-        self,
-        img_size=256,
-        patch_size=16,
-        in_chans=1,
-        num_classes=4,
-        embed_dim=768,
-        depth=12,
-        num_heads=12,
-        decoder_embed_dim=512,
-        decoder_depth=8,
-        decoder_num_heads=16,
-        mlp_ratio=4.,
-        learning_rate=1e-4,
-        weight_decay=0.01,
-        max_epochs=100,
-        **kwargs
-    ):
+class MAEPretrainModel(pl.LightningModule):
+    def __init__(self, config: ModelConfig, mask_ratio=0.75, norm_pix_loss=False):
         super().__init__()
         self.save_hyperparameters()
+        self.config = config
         
-        self.img_size = img_size
-        self.num_classes = num_classes
-        self.learning_rate = learning_rate
-        self.weight_decay = weight_decay
-        self.max_epochs = max_epochs
+        volume_size = getattr(config, 'volume_size', (80, 160, 160))
+        patch_size = config.patch_size
         
-        # Calculate number of patches
-        num_patches = (img_size // patch_size) ** 2
-        
-        # MAE Encoder (without masking for supervised learning)
-        self.encoder = MAEEncoder(
-            img_size=img_size,
-            patch_size=patch_size,
-            in_chans=in_chans,
-            embed_dim=embed_dim,
-            depth=depth,
-            num_heads=num_heads,
-            mlp_ratio=mlp_ratio
-        )
-        
-        # MAE Decoder
-        self.decoder = MAEDecoder(
-            num_patches=num_patches,
-            patch_size=patch_size,
-            in_chans=in_chans,
-            embed_dim=embed_dim,
-            decoder_embed_dim=decoder_embed_dim,
-            decoder_depth=decoder_depth,
-            decoder_num_heads=decoder_num_heads,
-            mlp_ratio=mlp_ratio
-        )
-        
-        # Segmentation head
-        self.seg_head = MAESegmentationHead(
-            in_channels=in_chans,
-            num_classes=num_classes,
-            img_size=img_size
-        )
-        
-        # Losses
-        self.dice_loss = DiceLoss()
-        self.ce_loss = nn.CrossEntropyLoss()
-        
-        # For visualization
-        self.test_outputs = []
-    
-    def forward(self, x):
-        """
-        Forward pass for segmentation
-        Args:
-            x: (B, C, H, W) input images
-        Returns:
-            seg_logits: (B, num_classes, H, W) segmentation logits
-        """
-        # Encode without masking (mask_ratio=0)
-        latent, _, ids_restore = self.encoder(x, mask_ratio=0.0)
-        
-        # Decode
-        decoder_out = self.decoder(latent, ids_restore)
-        
-        # Convert to image
-        reconstructed = self.decoder.unpatchify(decoder_out)
-        
-        # Segmentation head
-        seg_logits = self.seg_head(reconstructed)
-        
-        return seg_logits
-    
-    def compute_loss(self, logits, targets):
-        """
-        Compute combined loss
-        Args:
-            logits: (B, C, H, W) prediction logits
-            targets: (B, C, H, W) one-hot targets or (B, H, W) class indices
-        """
-        # Convert targets if needed
-        if targets.dim() == 3:
-            # (B, H, W) -> (B, C, H, W) one-hot
-            targets_onehot = torch.nn.functional.one_hot(
-                targets.long(), num_classes=self.num_classes
-            ).permute(0, 3, 1, 2).float()
+        if isinstance(volume_size, int):
+            volume_size_tuple = (volume_size, volume_size, volume_size)
         else:
-            targets_onehot = targets
+            volume_size_tuple = tuple(volume_size)
+        grid_size = tuple([v // patch_size for v in volume_size_tuple])
+        num_patches = grid_size[0] * grid_size[1] * grid_size[2]
         
-        # Get class indices for CE loss
-        target_indices = torch.argmax(targets_onehot, dim=1)
+        logger.info(f"Initializing 3D MAE Model:")
+        logger.info(f"  Volume size: {volume_size_tuple}³")
+        logger.info(f"  Patch size: {patch_size}³")
+        logger.info(f"  Grid size: {grid_size}³")
+        logger.info(f"  Number of patches: {num_patches}")
         
-        # Compute losses
-        dice_loss = self.dice_loss(logits, targets_onehot)
-        ce_loss = self.ce_loss(logits, target_indices)
+        self.encoder = MAEEncoder3D(
+            volume_size=volume_size_tuple,
+            patch_size=patch_size,
+            in_chans=config.in_chans,
+            embed_dim=config.embed_dim,
+            depth=config.depth,
+            num_heads=config.num_heads,
+            mlp_ratio=config.mlp_ratio, drop_rate=config.dropout
+        )
         
-        total_loss = 0.5 * dice_loss + 0.5 * ce_loss
+        self.decoder = MAEDecoder(
+            num_patches=grid_size,
+            patch_size=patch_size,
+            in_chans=config.in_chans,
+            embed_dim=config.embed_dim,
+            decoder_embed_dim=config.decoder_embed_dim,
+            decoder_depth=config.decoder_depth,
+            decoder_num_heads=config.decoder_num_heads,
+            mlp_ratio=config.mlp_ratio, drop_rate=config.dropout
+        )
         
-        return total_loss, dice_loss, ce_loss
+        self.loss_fn = MAELossWithVisualization(
+            patch_size=patch_size,
+            in_chans=config.in_chans,
+            norm_pix_loss=norm_pix_loss
+        )
+        self.loss_fn.volume_shape = volume_size_tuple
+        
+        self.mask_ratio = mask_ratio
+        self.learning_rate = config.learning_rate
+        self.weight_decay = config.weight_decay
+        self.warmup_epochs = config.warmup_epochs
+        self.max_epochs = config.max_epochs
+        self.volume_size = volume_size_tuple
+    
+    def forward(self, volumes, mask_ratio=None):
+        if mask_ratio is None:
+            mask_ratio = self.mask_ratio
+        
+        latent, mask, ids_restore, _ = self.encoder(volumes, mask_ratio)
+        
+        pred = self.decoder(latent, ids_restore)
+        
+        loss = self.loss_fn(volumes, pred, mask)
+        
+        return loss, pred, mask
     
     def training_step(self, batch, batch_idx):
-        images, masks = batch
-        logits = self(images)
-        total_loss, dice_loss, ce_loss = self.compute_loss(logits, masks)
+        volumes, _ = batch
+        loss, pred, mask = self.forward(volumes)
         
-        # Log metrics
-        self.log('train_loss', total_loss, on_step=True, on_epoch=True, prog_bar=True)
-        self.log('train_dice_loss', dice_loss, on_step=True, on_epoch=True)
-        self.log('train_ce_loss', ce_loss, on_step=True, on_epoch=True)
+        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
         
-        # Prefer Lightning progress bar/TensorBoard over logging within loop
-        
-        return total_loss
+        return loss
     
     def validation_step(self, batch, batch_idx):
-        images, masks = batch
-        logits = self(images)
-        total_loss, dice_loss, ce_loss = self.compute_loss(logits, masks)
+        volumes, _ = batch
+        loss, pred, mask = self.forward(volumes)
         
-        # Log metrics
-        self.log('val_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log('val_dice_loss', dice_loss, on_step=False, on_epoch=True)
-        self.log('val_ce_loss', ce_loss, on_step=False, on_epoch=True)
+        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         
-        return total_loss
-    
-    def test_step(self, batch, batch_idx):
-        images, masks = batch
-        logits = self(images)
-        total_loss, dice_loss, ce_loss = self.compute_loss(logits, masks)
-        
-        # Store for visualization
-        pred_masks = torch.argmax(logits, dim=1)
-        self.test_outputs.append({
-            'images': images.cpu(),
-            'true_masks': masks.cpu(),
-            'pred_masks': pred_masks.cpu()
-        })
-        
-        self.log('test_loss', total_loss, on_step=False, on_epoch=True)
-        self.log('test_dice_loss', dice_loss, on_step=False, on_epoch=True)
-        self.log('test_ce_loss', ce_loss, on_step=False, on_epoch=True)
-        
-        return total_loss
-    
-    def on_train_epoch_end(self):
-        pass
-    
-    def on_validation_epoch_end(self):
-        pass
-    
-    def on_test_epoch_end(self):
-        self.visualize_results()
-        self.visualize_results()
-    
-    def visualize_results(self, save_dir='test_results'):
-        """Visualize test results"""
-        os.makedirs(save_dir, exist_ok=True)
-        
-        num_samples = min(10, len(self.test_outputs))
-        fig, axes = plt.subplots(num_samples, 3, figsize=(15, 5 * num_samples))
-        if num_samples == 1:
-            axes = axes.reshape(1, -1)
-        
-        for i in range(num_samples):
-            output = self.test_outputs[i]
-            img = output['images'][0, 0].numpy()  # First sample, first channel
-            true_mask = output['true_masks'][0].numpy()
-            pred_mask = output['pred_masks'][0].numpy()
-            
-            # Convert one-hot to class indices if needed
-            if true_mask.ndim == 3:  # (C, H, W)
-                true_mask = np.argmax(true_mask, axis=0)
-            
-            axes[i, 0].imshow(img, cmap='gray')
-            axes[i, 0].set_title('Input Image')
-            axes[i, 0].axis('off')
-            
-            axes[i, 1].imshow(true_mask, cmap='tab10', vmin=0, vmax=self.num_classes-1)
-            axes[i, 1].set_title('Ground Truth')
-            axes[i, 1].axis('off')
-            
-            axes[i, 2].imshow(pred_mask, cmap='tab10', vmin=0, vmax=self.num_classes-1)
-            axes[i, 2].set_title('Prediction')
-            axes[i, 2].axis('off')
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(save_dir, 'segmentation_results.png'), dpi=200)
-        plt.close()
-        
-        # Saved visualization
+        return loss
     
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
             self.parameters(),
             lr=self.learning_rate,
-            weight_decay=self.weight_decay
+            weight_decay=self.weight_decay,
+            betas=(0.9, 0.95)
         )
         
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        scheduler = CosineAnnealingLR(
             optimizer,
-            T_max=self.max_epochs,
+            T_max=max(1, self.max_epochs - self.warmup_epochs),
             eta_min=1e-6
         )
         
@@ -303,43 +147,111 @@ class MAESegmentationModel(pl.LightningModule):
                 "monitor": "val_loss"
             }
         }
+    
+    def get_reconstruction_visualization(self, volumes):
+        self.eval()
+        self.loss_fn.volume_shape = tuple(volumes.shape[2:])
+        with torch.no_grad():
+            latent, mask, ids_restore, _ = self.encoder(volumes, self.mask_ratio)
+            pred = self.decoder(latent, ids_restore)
+            _, viz_data = self.loss_fn(volumes, pred, mask, return_visualization=True)
+        self.train()
+        return viz_data
 
 
-def train_mae_supervised(config, save_dir="./checkpoints_supervised"):
-    """
-    Train MAE-based supervised segmentation
-    Args:
-        config: ModelConfig with training parameters
-        save_dir: Directory to save checkpoints
-    """
-    logger.info("=== Starting MAE Supervised Training ===")
+def create_reconstruction_grid(model, dataloader, device, num_samples=4, save_dir="mae_results_3d"):
+    model.eval()
+    os.makedirs(save_dir, exist_ok=True)
     
-    # Import here to avoid circular dependency
-    from datasets.mae_dataset import MedicalSegmentationDataset
+    if len(dataloader.dataset) == 0:
+        logger.warning("Dataset is empty, cannot generate reconstruction result")
+        return
     
-    # Create dataset
-    dataset = MedicalSegmentationDataset(
+    with torch.no_grad():
+        try:
+            volumes, _ = next(iter(dataloader))
+            
+            B = min(num_samples, volumes.size(0))
+            if B == 0:
+                logger.warning("Batch size is 0, cannot generate reconstruction result")
+                return
+                
+            volumes = volumes[:B].to(device)
+            logger.info(f"Generating {B} 3D volume reconstruction results...")
+            logger.info(f"Volume shape: {volumes.shape}")
+            
+            viz_data = model.get_reconstruction_visualization(volumes)
+            
+            def to_display(tensor_img):
+                img = tensor_img.cpu().numpy()
+                if len(img.shape) == 4:
+                    img = img[:, 0, :, :]
+                img_min, img_max = img.min(), img.max()
+                if img_max > img_min:
+                    img = (img - img_min) / (img_max - img_min)
+                return img
+            
+            original = to_display(viz_data['original'])
+            masked = to_display(viz_data['masked'])
+            reconstructed = to_display(viz_data['reconstructed'])
+            reconstruction_paste = to_display(viz_data['reconstruction_paste'])
+            
+            fig, axes = plt.subplots(B, 4, figsize=(16, 4 * B))
+            if B == 1:
+                axes = axes.reshape(1, -1)
+            
+            titles = ['Original (mid slice)', 'Masked', 'Reconstruction', 'Reconstruction + Visible']
+            
+            for i in range(B):
+                images_to_show = [
+                    original[i],
+                    masked[i],
+                    reconstructed[i],
+                    reconstruction_paste[i]
+                ]
+                
+                for j, (img, title) in enumerate(zip(images_to_show, titles)):
+                    axes[i, j].imshow(img, cmap='gray')
+                    axes[i, j].set_title(f'{title} (Sample {i+1})', fontsize=10, fontweight='bold')
+                    axes[i, j].axis('off')
+            
+            plt.tight_layout()
+            
+            grid_save_path = os.path.join(save_dir, 'reconstruction_grid.png')
+            plt.savefig(grid_save_path, dpi=200, bbox_inches='tight')
+            plt.close(fig)
+            
+            logger.info(f"Generated {B} 3D reconstruction result grid visualization: {grid_save_path}")
+            
+        except Exception as e:
+            logger.error(f"Error generating 3D reconstruction result: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+
+def pretrain_mae(config, mask_ratio=0.75, norm_pix_loss=False, save_dir="./checkpoints_mae_3d"):
+    logger.info("Starting 3D MAE pretraining...")
+    
+    dataset = MedicalMAEDataset(
         h5_dir=config.dataset_path,
-        img_size=getattr(config, 'img_size', 256),
-        crop_ratio=getattr(config, 'crop_ratio', 0.3),
-        num_classes=4
+        volume_size=getattr(config, 'volume_size', (80,160,160)),
+        config=config
     )
     
-    # Split into train, val, test
     train_size = int(len(dataset) * config.train_val_split)
-    val_size = int(len(dataset) * 0.1)
-    test_size = len(dataset) - train_size - val_size
-    
-    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
-        dataset, [train_size, val_size, test_size]
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = torch.utils.data.random_split(
+        dataset, [train_size, val_size]
     )
     
-    # Dataset split sizes (optional)
+    logger.info(f"Train volumes: {train_size}, Val volumes: {val_size}")
     
-    # Create dataloaders
+    batch_size = min(config.batch_size, 4)
+    logger.info(f"Using batch size: {batch_size} (adjusted for 3D data)")
+    
     train_loader = DataLoader(
         train_dataset,
-        batch_size=config.batch_size,
+        batch_size=batch_size,
         shuffle=True,
         num_workers=config.num_workers,
         pin_memory=True,
@@ -349,70 +261,56 @@ def train_mae_supervised(config, save_dir="./checkpoints_supervised"):
     
     val_loader = DataLoader(
         val_dataset,
-        batch_size=config.batch_size,
+        batch_size=batch_size,
         shuffle=False,
         num_workers=config.num_workers,
         pin_memory=True,
         persistent_workers=True if config.num_workers > 0 else False,
-        drop_last=False
+        drop_last=True
     )
     
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=config.batch_size,
-        shuffle=False,
-        num_workers=config.num_workers,
-        pin_memory=True,
-        drop_last=False
+    model = MAEPretrainModel(
+        config=config,
+        mask_ratio=mask_ratio,
+        norm_pix_loss=norm_pix_loss
     )
+    model.validation_loader = val_loader
     
-    # Create model
-    model = MAESegmentationModel(
-        img_size=getattr(config, 'img_size', 256),
-        patch_size=16,
-        in_chans=1,
-        num_classes=4,
-        embed_dim=config.embed_dim,
-        depth=config.depth,
-        num_heads=config.num_heads,
-        decoder_embed_dim=512,
-        decoder_depth=8,
-        decoder_num_heads=16,
-        learning_rate=config.learning_rate,
-        weight_decay=config.weight_decay,
-        max_epochs=config.max_epochs
-    )
+    vis_callback = ValidationVisualizationCallback(save_dir=os.path.join(save_dir, "validation_images"))
     
-    # Create trainer
     trainer = pl.Trainer(
         max_epochs=config.max_epochs,
         accelerator='gpu',
         devices=config.devices_numbers,
-        precision="32",
+        precision="16-mixed",
+        # profiler=config.profiler,
         callbacks=[
             ModelCheckpoint(
                 dirpath=save_dir,
-                filename='best_seg_model',
+                filename='mae_3d_best_model',
                 monitor='val_loss',
                 mode='min',
                 save_top_k=1
             ),
-            EarlyStopping(
-                monitor='val_loss',
-                patience=getattr(config, 'early_stopping_patience', 20),
-                mode='min'
-            ),
-            LearningRateMonitor(logging_interval='epoch')
+            LearningRateMonitor(logging_interval='epoch'),
+            vis_callback
         ],
-        logger=TensorBoardLogger(save_dir, name='mae_supervised'),
+        log_every_n_steps=10,
+        logger=TensorBoardLogger(save_dir, name='mae_pretrain'),
         enable_progress_bar=True,
-        strategy=config.strategy
+        # strategy=config.strategy
     )
     
-    # Fit & test
     trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)
-    trainer.test(model, dataloaders=test_loader)
+
+    device = torch.device(f'cuda:{config.devices_numbers[0]}' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
+    create_reconstruction_grid(
+        model, val_loader, device,
+        num_samples=4,
+        save_dir=os.path.join(save_dir, "final_mae_results_3d")
+    )
     
-    # Done
+    logger.info("3D MAE pretraining complete!")
     return trainer
 

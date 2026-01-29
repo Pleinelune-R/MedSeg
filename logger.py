@@ -4,20 +4,20 @@ import sys
 from logging.handlers import RotatingFileHandler
 from colorama import init, Fore, Back, Style
 
-init(autoreset=True)  # 自动重置颜色
+init(autoreset=True)  # Auto reset terminal colors
 
 
-# 新增部分：自定义带颜色的 Formatter
+# Custom colored Formatter
 class ColorFormatter(logging.Formatter):
-    """带颜色的日志格式化器（仅对控制台生效）"""
+    """Colored log formatter (applies to console only)."""
 
-    # 定义不同日志级别的颜色
+    # Map log levels to colors
     LEVEL_COLORS = {
-        logging.DEBUG: Fore.CYAN,  # 青色
-        logging.INFO: Fore.GREEN,  # 绿色
-        logging.WARNING: Fore.YELLOW,  # 黄色
-        logging.ERROR: Fore.RED,  # 红色
-        logging.CRITICAL: Fore.RED + Back.WHITE + Style.BRIGHT,  # 红底白字
+        logging.DEBUG: Fore.CYAN,  # cyan
+        logging.INFO: Fore.GREEN,  # green
+        logging.WARNING: Fore.YELLOW,  # yellow
+        logging.ERROR: Fore.RED,  # red
+        logging.CRITICAL: Fore.RED + Back.WHITE + Style.BRIGHT,  # red background, white bright text
     }
 
     def format(self, record):
@@ -52,7 +52,7 @@ class ColorFormatter(logging.Formatter):
         return formatted_record
 
 
-# 日志级别映射
+# Log level mapping
 LOG_LEVELS = {
     "debug": logging.DEBUG,
     "info": logging.INFO,
@@ -97,9 +97,9 @@ class LoggerManager:
         if name not in self.loggers:
             logger = logging.getLogger(name)
             logger.setLevel(self.log_level)
-            # 只为自定义logger添加handler，不影响root logger
+            # Attach handlers only to the custom logger; do not affect the root logger
             if not logger.handlers:
-                # 控制台 handler
+                # Console handler
                 console_handler = logging.StreamHandler(sys.stdout)
                 console_handler.setLevel(self.log_level)
                 console_formatter = ColorFormatter(
@@ -108,7 +108,7 @@ class LoggerManager:
                 )
                 console_handler.setFormatter(console_formatter)
                 logger.addHandler(console_handler)
-                # 文件 handler
+                # File handler
                 file_path = os.path.join(self.log_dir, f"{name}.log")
                 file_handler = RotatingFileHandler(
                     file_path,
@@ -140,15 +140,15 @@ class LoggerManager:
                 handler.setLevel(level)
 
 
-# 创建日志管理器单例实例
+# Create logger manager singleton instance
 logger_manager = LoggerManager()
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
 
-# 初始化日志管理器
+# Initialize logger manager
 logger_manager.init_app(log_level=LOG_LEVEL, log_dir=os.getenv("LOG_DIR", "logs"))
 
 
-# 获取日志器的便捷函数
+# Convenience function to get a logger
 def get_logger(name="app"):
     return logger_manager.get_logger(name)
