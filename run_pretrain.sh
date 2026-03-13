@@ -2,9 +2,9 @@
 # Script to restart MAE pretraining with full volume dimensions (matching training data)
 # Uses data/preprocessed_mae which contains uncropped (resized) volumes.
 
-nohup python pretrain.py   \
+nohup python run_pretrain.py   \
   --data_path ./data/preprocessed_pretrain   \
-  --save_dir ./checkpoints_mae_pretrain   \
+  --save_dir ./checkpoints_pretrain   \
   --volume_size 48 256 256   \
   --patch_size 8   \
   --embed_dim 768   \

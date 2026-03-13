@@ -12,12 +12,12 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 
 from logger import get_logger
-from model.mae_encoder import MAEEncoder
-from model.mae_decoder import MAEDecoder
-from model.mae_loss import MAELossWithVisualization
+from model.pretrain_model.mae_encoder import MAEEncoder
+from model.pretrain_model.mae_deocder import MAEDecoder
+from model.pretrain_model.mae_loss import MAELossWithVisualization
 from datasets.mae_dataset import MedicalMAEDataset
 
-logger = get_logger("mae_pretrain")
+logger = get_logger("pretrain_pretrain")
 
 
 class MAEPretrainModel(pl.LightningModule):
@@ -27,7 +27,7 @@ class MAEPretrainModel(pl.LightningModule):
     """
     def __init__(
         self,
-        img_size=256,
+        volume_size=160,
         patch_size=16,
         in_chans=1,
         embed_dim=768,
@@ -48,12 +48,19 @@ class MAEPretrainModel(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         
-        # Calculate number of patches
-        num_patches = (img_size // patch_size) ** 2
+        # Normalize volume_size to tuple
+        if isinstance(volume_size, int):
+            volume_size = (volume_size, volume_size, volume_size)
+        if isinstance(patch_size, int):
+            patch_size = (patch_size, patch_size, patch_size)
         
-        # Initialize encoder
+        # Calculate grid size and total patches for 3D volumes
+        grid_size = tuple(v // p for v, p in zip(volume_size, patch_size))
+        num_patches = grid_size[0] * grid_size[1] * grid_size[2]
+        
+        # Initialize encoder with 3D volume size
         self.encoder = MAEEncoder(
-            img_size=img_size,
+            volume_size=volume_size,
             patch_size=patch_size,
             in_chans=in_chans,
             embed_dim=embed_dim,
@@ -62,10 +69,10 @@ class MAEPretrainModel(pl.LightningModule):
             mlp_ratio=mlp_ratio
         )
         
-        # Initialize decoder
+        # Initialize decoder with grid_size tuple
         self.decoder = MAEDecoder(
-            num_patches=num_patches,
-            patch_size=patch_size,
+            num_patches=grid_size,
+            patch_size=patch_size[0],
             in_chans=in_chans,
             embed_dim=embed_dim,
             decoder_embed_dim=decoder_embed_dim,
@@ -76,7 +83,7 @@ class MAEPretrainModel(pl.LightningModule):
         
         # Initialize loss
         self.loss_fn = MAELossWithVisualization(
-            patch_size=patch_size,
+            patch_size=patch_size[0],
             in_chans=in_chans,
             norm_pix_loss=norm_pix_loss
         )
@@ -103,7 +110,7 @@ class MAEPretrainModel(pl.LightningModule):
             mask_ratio = self.mask_ratio
         
         # Encode with masking
-        latent, mask, ids_restore = self.encoder(imgs, mask_ratio)
+        latent, mask, ids_restore, _ = self.encoder(imgs, mask_ratio)
         
         # Decode
         pred = self.decoder(latent, ids_restore)
@@ -180,7 +187,7 @@ class MAEPretrainModel(pl.LightningModule):
         return viz_data
 
 
-def create_reconstruction_grid(model, dataloader, device, num_samples=4, save_dir="mae_results"):
+def create_reconstruction_grid(model, dataloader, device, num_samples=4, save_dir="pretrain_results"):
     """Create reconstruction grid display"""
     model.eval()
     os.makedirs(save_dir, exist_ok=True)
@@ -259,7 +266,7 @@ def create_reconstruction_grid(model, dataloader, device, num_samples=4, save_di
             logger.error(traceback.format_exc())
 
 
-def pretrain_mae(config, mask_ratio=0.75, save_dir="./checkpoints_mae"):
+def pretrain_mae(config, mask_ratio=0.75, save_dir="./checkpoints_mae", norm_pix_loss=False):
     """
     MAE pretraining function
     Args:
@@ -274,8 +281,8 @@ def pretrain_mae(config, mask_ratio=0.75, save_dir="./checkpoints_mae"):
     # Create dataset
     dataset = MedicalMAEDataset(
         h5_dir=config.dataset_path,
-        img_size=getattr(config, 'img_size', 256),
-        crop_ratio=getattr(config, 'crop_ratio', 0.3)
+        volume_size=getattr(config, 'volume_size', 160),
+        config=config
     )
     
     # Split into train and validation
@@ -309,9 +316,12 @@ def pretrain_mae(config, mask_ratio=0.75, save_dir="./checkpoints_mae"):
     )
     
     # Create model
+    volume_size = getattr(config, 'volume_size', 160)
+    patch_size = getattr(config, 'patch_size', 16)
+    
     model = MAEPretrainModel(
-        img_size=getattr(config, 'img_size', 256),
-        patch_size=16,
+        volume_size=volume_size,
+        patch_size=patch_size,
         in_chans=1,
         embed_dim=config.embed_dim,
         depth=config.depth,
@@ -321,7 +331,7 @@ def pretrain_mae(config, mask_ratio=0.75, save_dir="./checkpoints_mae"):
         decoder_num_heads=16,
         mlp_ratio=4.,
         mask_ratio=mask_ratio,
-        norm_pix_loss=False,
+        norm_pix_loss=norm_pix_loss,
         learning_rate=config.learning_rate,
         weight_decay=config.weight_decay,
         warmup_epochs=getattr(config, 'warmup_epochs', 10),
@@ -332,13 +342,13 @@ def pretrain_mae(config, mask_ratio=0.75, save_dir="./checkpoints_mae"):
     trainer = pl.Trainer(
         max_epochs=config.max_epochs,
         accelerator='gpu',
-        devices=config.devices_numbers,
+        devices=getattr(config, "devices_numbers", [0]),
         precision="32",
-        profiler=config.profiler,
+        profiler=getattr(config, "profiler", "simple"),
         callbacks=[
             ModelCheckpoint(
                 dirpath=save_dir,
-                filename='mae_best_model',
+                filename='pretrain_best_model',
                 monitor='val_loss',
                 mode='min',
                 save_top_k=1
@@ -346,9 +356,8 @@ def pretrain_mae(config, mask_ratio=0.75, save_dir="./checkpoints_mae"):
             LearningRateMonitor(logging_interval='epoch')
         ],
         log_every_n_steps=10,
-        logger=TensorBoardLogger(save_dir, name='mae_pretrain'),
-        enable_progress_bar=True,
-        strategy=config.strategy
+        logger=TensorBoardLogger(save_dir, name='pretrain_pretrain'),
+        enable_progress_bar=True
     )
     
     # Fit
@@ -356,12 +365,13 @@ def pretrain_mae(config, mask_ratio=0.75, save_dir="./checkpoints_mae"):
     
     # Generate final reconstruction visualization
     # Generate final reconstruction visualization
-    device = torch.device(f'cuda:{config.devices_numbers[0]}' if torch.cuda.is_available() else 'cpu')
+    devices_list = getattr(config, "devices_numbers", [0])
+    device = torch.device(f'cuda:{devices_list[0]}' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
     create_reconstruction_grid(
         model, val_loader, device,
         num_samples=8,
-        save_dir=os.path.join(save_dir, "final_mae_results")
+        save_dir=os.path.join(save_dir, "final_pretrain_results")
     )
     
     # Done

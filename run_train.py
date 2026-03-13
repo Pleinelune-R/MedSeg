@@ -3,7 +3,7 @@ Main script for 3D MAE Supervised Segmentation Training
 """
 import argparse
 from model.config import ModelConfig
-from train.mae_cnnseg import train_cnnseg_3d
+from train import train_cnnseg_3d
 from logger import get_logger
 
 logger = get_logger("train")

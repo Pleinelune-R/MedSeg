@@ -3,7 +3,7 @@ Main script for 3D MAE Pretraining
 """
 import argparse
 from model.config import ModelConfig
-from train.mae_pretrain import pretrain_mae
+from train.pretrain import pretrain_mae
 from logger import get_logger
 
 logger = get_logger("pretrain")

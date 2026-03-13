@@ -7,8 +7,8 @@ from functools import partial
 from timm.models.vision_transformer import Block
 
 from logger import get_logger
-from .patch_embed import PatchEmbed
-from .pos_embed import get_sincos_pos_embed
+from model.tools.patch_embed import PatchEmbed
+from model.tools.pos_embed import get_sincos_pos_embed
 
 logger = get_logger("mae_encoder")
 
@@ -173,3 +173,6 @@ class MAEEncoder3D(nn.Module):
         x = x.transpose(1, 2)  # (N, embed_dim, num_patches)
         x = x.reshape(N, embed_dim, D, H, W)
         return x
+
+# Backward compatibility alias
+MAEEncoder = MAEEncoder3D

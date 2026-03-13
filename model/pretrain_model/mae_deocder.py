@@ -7,7 +7,7 @@ from functools import partial
 from timm.models.vision_transformer import Block
 
 from logger import get_logger
-from .pos_embed import get_sincos_pos_embed
+from model.tools.pos_embed import get_sincos_pos_embed
 
 logger = get_logger("mae_decoder")
 
